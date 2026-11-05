@@ -247,18 +247,46 @@ class BaseTerminalController: NSWindowController,
     /// view relationship.
     static func controller(owning surface: Ghostty.SurfaceView) -> BaseTerminalController? {
         if let controller = surfaceControllers.object(forKey: surface),
-           controller.surfaceTree.contains(surface) {
+           controller.owns(surface) {
             return controller
         }
 
         if let controller = surface.window?.windowController as? BaseTerminalController,
-           controller.surfaceTree.contains(surface) {
+           controller.owns(surface) {
             return controller
         }
 
         return NSApp.windows
             .compactMap { $0.windowController as? BaseTerminalController }
-            .first { $0.surfaceTree.contains(surface) }
+            .first { $0.owns(surface) }
+    }
+
+    /// Whether this controller owns the given surface. Subclasses that keep
+    /// surfaces outside of the visible split tree override this.
+    func owns(_ surface: Ghostty.SurfaceView) -> Bool {
+        surfaceTree.contains(surface)
+    }
+
+    var ownedSurfaces: [Ghostty.SurfaceView] {
+        Array(surfaceTree)
+    }
+
+    static func registerOwner(
+        _ controller: BaseTerminalController,
+        of surfaces: [Ghostty.SurfaceView]
+    ) {
+        for surface in surfaces {
+            surfaceControllers.setObject(controller, forKey: surface)
+        }
+    }
+
+    static func unregisterOwner(
+        _ controller: BaseTerminalController,
+        of surfaces: [Ghostty.SurfaceView]
+    ) {
+        for surface in surfaces where surfaceControllers.object(forKey: surface) === controller {
+            surfaceControllers.removeObject(forKey: surface)
+        }
     }
 
     private static func updateSurfaceControllers(
@@ -266,15 +294,10 @@ class BaseTerminalController: NSWindowController,
         from oldTree: SplitTree<Ghostty.SurfaceView>,
         to newTree: SplitTree<Ghostty.SurfaceView>
     ) {
-        for surface in oldTree where !newTree.contains(surface) {
-            if surfaceControllers.object(forKey: surface) === controller {
-                surfaceControllers.removeObject(forKey: surface)
-            }
-        }
-
-        for surface in newTree {
-            surfaceControllers.setObject(controller, forKey: surface)
-        }
+        unregisterOwner(
+            controller,
+            of: oldTree.filter { !newTree.contains($0) && !controller.owns($0) })
+        registerOwner(controller, of: Array(newTree))
     }
 
     /// Create a new split.
@@ -334,8 +357,9 @@ class BaseTerminalController: NSWindowController,
     ///
     /// Subclasses should call super first.
     func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
-        for surfaceView in from where !to.contains(surfaceView) {
-            cancelPendingClipboardConfirmation(for: surfaceView)
+        let departed = from.filter { !to.contains($0) }
+        if !departed.isEmpty {
+            surfacesDidLeaveTree(departed)
         }
 
         // If our surface tree becomes empty then we have no focused surface.
@@ -343,6 +367,14 @@ class BaseTerminalController: NSWindowController,
             focusedSurface = nil
         }
         syncSurfaceTreeOcclusionState()
+    }
+
+    /// Called with the surfaces that left the visible tree, before the tree change is
+    /// propagated further. The default drops their pending clipboard confirmations.
+    func surfacesDidLeaveTree(_ surfaces: [Ghostty.SurfaceView]) {
+        for surfaceView in surfaces {
+            cancelPendingClipboardConfirmation(for: surfaceView)
+        }
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -673,18 +705,23 @@ class BaseTerminalController: NSWindowController,
         let config = configAny as? Ghostty.SurfaceConfiguration
 
         // Determine our desired direction
-        guard let directionAny = notification.userInfo?["direction"] else { return }
-        guard let direction = directionAny as? ghostty_action_split_direction_e else { return }
-        let splitDirection: SplitTree<Ghostty.SurfaceView>.NewDirection
-        switch direction {
-        case GHOSTTY_SPLIT_DIRECTION_RIGHT: splitDirection = .right
-        case GHOSTTY_SPLIT_DIRECTION_LEFT: splitDirection = .left
-        case GHOSTTY_SPLIT_DIRECTION_DOWN: splitDirection = .down
-        case GHOSTTY_SPLIT_DIRECTION_UP: splitDirection = .up
-        default: return
-        }
+        guard let splitDirection = Self.newSplitDirection(from: notification) else { return }
 
         newSplit(at: oldView, direction: splitDirection, baseConfig: config)
+    }
+
+    static func newSplitDirection(
+        from notification: Notification
+    ) -> SplitTree<Ghostty.SurfaceView>.NewDirection? {
+        guard let directionAny = notification.userInfo?["direction"] else { return nil }
+        guard let direction = directionAny as? ghostty_action_split_direction_e else { return nil }
+        switch direction {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
+        case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
+        case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
+        case GHOSTTY_SPLIT_DIRECTION_UP: return .up
+        default: return nil
+        }
     }
 
     @objc private func ghosttyDidEqualizeSplits(_ notification: Notification) {
@@ -1282,13 +1319,10 @@ class BaseTerminalController: NSWindowController,
         syncSurfaceTreeOcclusionState()
     }
 
-    private func syncSurfaceTreeOcclusionState() {
+    func syncSurfaceTreeOcclusionState() {
         let visible = self.window?.occlusionState.contains(.visible) ?? false
-        for view in surfaceTree {
-            if let surface = view.surface, view.isWindowVisible != visible {
-                ghostty_surface_set_occlusion(surface, visible)
-                view.isWindowVisible = visible
-            }
+        SurfaceOcclusion.sync(ownedSurfaces, windowVisible: visible) { [surfaceTree] in
+            surfaceTree.contains($0)
         }
     }
 
@@ -1657,11 +1691,15 @@ extension BaseTerminalController {
         onConfirmClipboardRequest(request, for: target)
     }
 
-    private func cancelPendingClipboardConfirmation(for target: Ghostty.SurfaceView) {
+    func dismissClipboardConfirmationSheet(for target: Ghostty.SurfaceView) {
         if let confirmation = clipboardConfirmation,
            confirmation.confirmation.surface === target {
             dismissClipboardConfirmation(confirmation)
         }
+    }
+
+    func cancelPendingClipboardConfirmation(for target: Ghostty.SurfaceView) {
+        dismissClipboardConfirmationSheet(for: target)
         target.pendingClipboardConfirmation = nil
     }
 

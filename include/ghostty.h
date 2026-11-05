@@ -673,6 +673,12 @@ typedef enum {
   GHOSTTY_GOTO_TAB_LAST = -3,
 } ghostty_action_goto_tab_e;
 
+// apprt.action.GotoWorkspace
+typedef enum {
+  GHOSTTY_GOTO_WORKSPACE_PREVIOUS = -1,
+  GHOSTTY_GOTO_WORKSPACE_NEXT = -2,
+} ghostty_action_goto_workspace_e;
+
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
@@ -938,6 +944,31 @@ typedef struct {
   uint64_t duration;
 } ghostty_action_command_finished_s;
 
+typedef enum {
+  GHOSTTY_PROGRAM_STATUS_STATE_IDLE,
+  GHOSTTY_PROGRAM_STATUS_STATE_WORKING,
+  GHOSTTY_PROGRAM_STATUS_STATE_DONE,
+  GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED,
+  GHOSTTY_PROGRAM_STATUS_STATE_ERROR,
+  GHOSTTY_PROGRAM_STATUS_STATE_CLEAR,
+} ghostty_action_program_status_state_e;
+
+typedef enum {
+  GHOSTTY_PROGRAM_STATUS_KIND_NONE,
+  GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION,
+  GHOSTTY_PROGRAM_STATUS_KIND_QUESTION,
+  GHOSTTY_PROGRAM_STATUS_KIND_AUTH,
+} ghostty_action_program_status_kind_e;
+
+typedef struct {
+  ghostty_action_program_status_state_e state;
+  ghostty_action_program_status_kind_e kind;
+  int8_t progress;
+  const char* id;
+  const char* title;
+  const char* msg;
+} ghostty_action_program_status_s;
+
 // apprt.action.StartSearch.C
 typedef struct {
   const char* needle;
@@ -1032,6 +1063,14 @@ typedef enum {
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
   GHOSTTY_ACTION_RESIZE_WINDOW,
+  GHOSTTY_ACTION_NEW_WORKSPACE,
+  GHOSTTY_ACTION_CLOSE_WORKSPACE,
+  GHOSTTY_ACTION_GOTO_WORKSPACE,
+  GHOSTTY_ACTION_TOGGLE_WORKSPACE_OVERVIEW,
+  GHOSTTY_ACTION_TOGGLE_WORKSPACE_SWITCHER,
+  GHOSTTY_ACTION_TOGGLE_ACTIVITY_POPOVER,
+  GHOSTTY_ACTION_COMMAND_STARTED,
+  GHOSTTY_ACTION_PROGRAM_STATUS,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1039,6 +1078,7 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
+  ghostty_action_goto_workspace_e goto_workspace;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
@@ -1071,6 +1111,7 @@ typedef union {
   ghostty_surface_message_childexited_s child_exited;
   ghostty_action_progress_report_s progress_report;
   ghostty_action_command_finished_s command_finished;
+  ghostty_action_program_status_s program_status;
   ghostty_action_start_search_s start_search;
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;

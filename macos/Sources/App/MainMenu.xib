@@ -72,16 +72,24 @@
                 <outlet property="menuUndo" destination="r83-CV-syt" id="bU9-0b-xgQ"/>
                 <outlet property="menuUseAsDefault" destination="TrB-O8-g8H" id="af4-Jh-2HU"/>
                 <outlet property="menuZoomSplit" destination="oPd-mn-IEH" id="wTu-jK-egI"/>
+                <outlet property="menuWorkspace" destination="Wk1-Mn-Top" id="Wk1-Mn-Out"/>
+                <outlet property="menuNewWorkspace" destination="Wk2-Nw-Itm" id="Wk2-Nw-Out"/>
+                <outlet property="menuCloseWorkspace" destination="Wk3-Cl-Itm" id="Wk3-Cl-Out"/>
+                <outlet property="menuSwitchWorkspace" destination="Wk4-Sw-Itm" id="Wk4-Sw-Out"/>
+                <outlet property="menuWorkspaceOverview" destination="Wk5-Ov-Itm" id="Wk5-Ov-Out"/>
+                <outlet property="menuActivityPopover" destination="Wk6-Ac-Itm" id="Wk6-Ac-Out"/>
+                <outlet property="menuPreviousWorkspace" destination="Wk8-Pv-Itm" id="Wk8-Pv-Out"/>
+                <outlet property="menuNextWorkspace" destination="Wk9-Nx-Itm" id="Wk9-Nx-Out"/>
             </connections>
         </customObject>
         <customObject id="YLy-65-1bz" customClass="NSFontManager"/>
         <menu title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
             <items>
-                <menuItem title="Ghostty" id="1Xt-HY-uBw">
+                <menuItem title="Ghostty Workspaces" id="1Xt-HY-uBw">
                     <modifierMask key="keyEquivalentModifierMask"/>
-                    <menu key="submenu" title="Ghostty" systemMenu="apple" id="uQy-DD-JDr">
+                    <menu key="submenu" title="Ghostty Workspaces" systemMenu="apple" id="uQy-DD-JDr">
                         <items>
-                            <menuItem title="About Ghostty" id="5kV-Vb-QxS">
+                            <menuItem title="About Ghostty Workspaces" id="5kV-Vb-QxS">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="showAbout:" target="-1" id="tGt-68-tLn"/>
@@ -112,7 +120,7 @@
                                     <action selector="toggleSecureInput:" target="bbz-4X-AYv" id="vWx-z8-5Sy"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Make Ghostty the Default Terminal" id="b1t-oB-7MI" userLabel="Set Ghostty as Default Terminal App">
+                            <menuItem title="Make Ghostty Workspaces the Default Terminal" id="b1t-oB-7MI" userLabel="Set Ghostty Workspaces as Default Terminal App">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="setAsDefaultTerminal:" target="bbz-4X-AYv" id="QHh-CA-Qho"/>
@@ -124,7 +132,7 @@
                                 <menu key="submenu" title="Services" id="aQe-vS-j8Q"/>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="qno-yg-pur"/>
-                            <menuItem title="Hide Ghostty" keyEquivalent="h" id="Olw-nP-bQN">
+                            <menuItem title="Hide Ghostty Workspaces" keyEquivalent="h" id="Olw-nP-bQN">
                                 <connections>
                                     <action selector="hide:" target="-1" id="PnN-Uc-m68"/>
                                 </connections>
@@ -142,7 +150,7 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="kCx-OE-vgT"/>
-                            <menuItem title="Quit Ghostty" id="4sb-4s-VLi">
+                            <menuItem title="Quit Ghostty Workspaces" id="4sb-4s-VLi">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="terminate:" target="-1" id="Te7-pn-YzF"/>
@@ -375,6 +383,57 @@
                         </items>
                     </menu>
                 </menuItem>
+                <menuItem title="Workspace" id="Wk1-Mn-Top">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Workspace" id="Wk1-Mn-Sub">
+                        <items>
+                            <menuItem title="New Workspace…" id="Wk2-Nw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="newWorkspace:" target="-1" id="Wk2-Nw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Close Workspace" id="Wk3-Cl-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="closeWorkspace:" target="-1" id="Wk3-Cl-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Wk7-Sp-Itm"/>
+                            <menuItem title="Switch Workspace…" id="Wk4-Sw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleWorkspaceSwitcher:" target="-1" id="Wk4-Sw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Show All Workspaces" id="Wk5-Ov-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleWorkspaceOverview:" target="-1" id="Wk5-Ov-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Activity" id="Wk6-Ac-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleActivityPopover:" target="-1" id="Wk6-Ac-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Wk0-Sp-Itm"/>
+                            <menuItem title="Previous Workspace" id="Wk8-Pv-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="selectPreviousWorkspace:" target="-1" id="Wk8-Pv-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Next Workspace" id="Wk9-Nx-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="selectNextWorkspace:" target="-1" id="Wk9-Nx-Act"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
                 <menuItem title="Window" id="aUF-d1-5bR">
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Window" systemMenu="window" id="Td7-aD-5lo">
@@ -525,7 +584,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="F2S-fz-NVQ">
                         <items>
-                            <menuItem title="Ghostty Help" keyEquivalent="?" id="FKE-Sm-Kum">
+                            <menuItem title="Ghostty Workspaces Help" keyEquivalent="?" id="FKE-Sm-Kum">
                                 <connections>
                                     <action selector="showHelp:" target="bbz-4X-AYv" id="tiy-ow-xSw"/>
                                 </connections>

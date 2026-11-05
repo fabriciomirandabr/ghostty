@@ -168,3 +168,31 @@ extension Ghostty.Action.ProgressReport {
         self.progress = c.progress >= 0 ? UInt8(c.progress) : nil
     }
 }
+
+extension ProgramStatusReport {
+    init?(c: ghostty_action_program_status_s) {
+        switch c.state {
+        case GHOSTTY_PROGRAM_STATUS_STATE_IDLE: self.state = .idle
+        case GHOSTTY_PROGRAM_STATUS_STATE_WORKING: self.state = .working
+        case GHOSTTY_PROGRAM_STATUS_STATE_DONE: self.state = .done
+        case GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED: self.state = .blocked
+        case GHOSTTY_PROGRAM_STATUS_STATE_ERROR: self.state = .error
+        case GHOSTTY_PROGRAM_STATUS_STATE_CLEAR: self.state = .clear
+        default: return nil
+        }
+
+        switch c.kind {
+        case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: self.kind = .permission
+        case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: self.kind = .question
+        case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: self.kind = .auth
+        default: self.kind = .none
+        }
+
+        self.id = String(cString: c.id)
+        self.progress = c.progress >= 0 ? Int(c.progress) : nil
+        let title = String(cString: c.title)
+        self.title = title.isEmpty ? nil : title
+        let message = String(cString: c.msg)
+        self.message = message.isEmpty ? nil : message
+    }
+}

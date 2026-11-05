@@ -58,14 +58,17 @@ extension TerminalRestorable {
 
 /// The state stored for terminal window restoration.
 final class TerminalRestorableState: TerminalRestorable {
-    static var version: Int { 7 }
+    static var version: Int { 8 }
     static var minimumVersion: Int { 5 }
 
+    var workspaces: WorkspacesState<Ghostty.SurfaceView>? {
+        internalState.workspaces
+    }
     var focusedSurface: String? {
         internalState.focusedSurface
     }
     var surfaceTree: SplitTree<Ghostty.SurfaceView> {
-        internalState.surfaceTree
+        internalState.restoredSurfaceTree
     }
     var effectiveFullscreenMode: FullscreenMode? {
         internalState.effectiveFullscreenMode
@@ -84,8 +87,8 @@ final class TerminalRestorableState: TerminalRestorable {
     /// we use an internal type to perform migration and tests
     private let internalState: InternalState<Ghostty.SurfaceView>
 
-    init(from controller: TerminalController) {
-        internalState = .init(from: controller)
+    init(from controller: TerminalController, workspaces: WorkspacesState<Ghostty.SurfaceView>? = nil) {
+        internalState = .init(from: controller, workspaces: workspaces)
     }
 
     required init(copy other: TerminalRestorableState) {
@@ -155,9 +158,16 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // can be found for events from libghostty. This uses the low-level
         // createWindow so that AppKit can place the window wherever it should
         // be.
-        let c = TerminalController.init(
-            appDelegate.ghostty,
-            withSurfaceTree: state.surfaceTree)
+        let c: TerminalController
+        if let workspaces = state.workspaces,
+           appDelegate.ghostty.config.windowDecorations,
+           appDelegate.ghostty.config.macosTitlebarStyle == .workspaces {
+            c = WorkspaceTerminalController(appDelegate.ghostty, restoring: workspaces)
+        } else {
+            c = TerminalController.make(
+                appDelegate.ghostty,
+                withSurfaceTree: state.surfaceTree)
+        }
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return

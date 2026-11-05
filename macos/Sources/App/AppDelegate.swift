@@ -76,6 +76,15 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
 
+    @IBOutlet private var menuWorkspace: NSMenuItem?
+    @IBOutlet private var menuNewWorkspace: NSMenuItem?
+    @IBOutlet private var menuCloseWorkspace: NSMenuItem?
+    @IBOutlet private var menuSwitchWorkspace: NSMenuItem?
+    @IBOutlet private var menuWorkspaceOverview: NSMenuItem?
+    @IBOutlet private var menuActivityPopover: NSMenuItem?
+    @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
+    @IBOutlet private var menuNextWorkspace: NSMenuItem?
+
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerUp: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerDown: NSMenuItem?
@@ -229,8 +238,7 @@ class AppDelegate: NSObject,
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
 
-        // Start our update checker.
-        updateController.startUpdater()
+        menuCheckForUpdates?.isHidden = true
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
@@ -968,12 +976,20 @@ class AppDelegate: NSObject,
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
         for c in TerminalController.all {
-            for view in c.surfaceTree where view.id == uuid {
+            for view in c.ownedSurfaces where view.id == uuid {
                 return view
             }
         }
 
         return nil
+    }
+
+    func focusWorkspaceSurface(_ surfaceID: UUID, inWorkspace workspaceID: UUID) {
+        for case let controller as WorkspaceTerminalController in TerminalController.all
+        where controller.focus(surfaceID: surfaceID, inWorkspace: workspaceID) {
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
     }
 
     // MARK: - Global State
@@ -1005,6 +1021,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
+        guard !UpdateFeed.isInert else { return }
         updateController.checkForUpdates()
         // UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
@@ -1258,6 +1275,15 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
+
+        menuWorkspace?.isHidden = config.macosTitlebarStyle != .workspaces
+        syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
+        syncMenuShortcut(config, action: "close_workspace", menuItem: self.menuCloseWorkspace)
+        syncMenuShortcut(config, action: "toggle_workspace_switcher", menuItem: self.menuSwitchWorkspace)
+        syncMenuShortcut(config, action: "toggle_workspace_overview", menuItem: self.menuWorkspaceOverview)
+        syncMenuShortcut(config, action: "toggle_activity_popover", menuItem: self.menuActivityPopover)
+        syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
+        syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 

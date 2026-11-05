@@ -94,11 +94,30 @@ private struct TerminalSplitLeaf: View {
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
 
+    @EnvironmentObject private var ghostty: Ghostty.App
+    @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
+
+    private var showsHeader: Bool {
+        SplitPaneHeader.isVisible(isSplit: isSplit, style: ghostty.config.macosTitlebarStyle)
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            Ghostty.InspectableSurface(
-                surfaceView: surfaceView,
-                isSplit: isSplit)
+            VStack(spacing: 0) {
+                if showsHeader {
+                    SplitPaneHeaderHost(
+                        surfaceView: surfaceView,
+                        isActive: lastFocusedSurface?.value === surfaceView,
+                        onClose: {
+                            guard let surface = surfaceView.surface else { return }
+                            ghostty.requestClose(surface: surface)
+                        })
+                }
+
+                Ghostty.InspectableSurface(
+                    surfaceView: surfaceView,
+                    isSplit: isSplit)
+            }
             .background {
                 // If we're dragging ourself, we hide the entire drop zone. This makes
                 // it so that a released drop animates back to its source properly

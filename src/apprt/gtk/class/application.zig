@@ -805,6 +805,16 @@ pub const Application = extern struct {
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
 
+            .new_workspace,
+            .close_workspace,
+            .goto_workspace,
+            .toggle_workspace_overview,
+            .toggle_workspace_switcher,
+            .toggle_activity_popover,
+            .command_started,
+            .program_status,
+            => return false,
+
             // Unimplemented
             .secure_input,
             .close_all_windows,

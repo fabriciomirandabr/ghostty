@@ -57,6 +57,41 @@ pub const Message = union(enum) {
         }
     };
 
+    /// A fixed-size OSC 7501 report sent to the app thread. Title and
+    /// message are cut at a codepoint boundary when they do not fit.
+    pub const ProgramStatus = struct {
+        state: apprt.action.ProgramStatus.State,
+        kind: apprt.action.ProgramStatus.Kind,
+        progress: ?u8,
+        id: [terminal.osc.program_status.max_id_bytes:0]u8,
+        title: [127:0]u8,
+        msg: [255:0]u8,
+
+        pub fn init(report: terminal.osc.program_status.Report) ProgramStatus {
+            const program_status = terminal.osc.program_status;
+            var result: ProgramStatus = undefined;
+            result.state = .fromOsc(report.state);
+            result.kind = .fromOsc(report.readOption(.kind));
+            result.progress = report.readOption(.progress);
+            DesktopNotification.copyUtf8Z(
+                result.id.len,
+                &result.id,
+                report.readOption(.id) orelse "",
+            );
+
+            var title_buf: [program_status.max_title_bytes]u8 = undefined;
+            var title: std.Io.Writer = .fixed(&title_buf);
+            report.writeText(.title, &title) catch unreachable;
+            DesktopNotification.copyUtf8Z(result.title.len, &result.title, title.buffered());
+
+            var msg_buf: [program_status.max_msg_bytes]u8 = undefined;
+            var msg: std.Io.Writer = .fixed(&msg_buf);
+            report.writeText(.msg, &msg) catch unreachable;
+            DesktopNotification.copyUtf8Z(result.msg.len, &result.msg, msg.buffered());
+            return result;
+        }
+    };
+
     /// Set the title of the surface.
     /// TODO: we should change this to a "WriteReq" style structure in
     /// the termio message so that we can more efficiently send strings
@@ -139,6 +174,9 @@ pub const Message = union(enum) {
 
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
+
+    /// A program reported its status using OSC 7501.
+    program_status: ProgramStatus,
 
     /// A command has started in the shell, start a timer.
     start_command,
@@ -321,4 +359,50 @@ test "copyUtf8Z preserves UTF-8 that fits" {
     Message.DesktopNotification.copyUtf8Z(dst.len, &dst, "abcЯ");
 
     try std.testing.expectEqualStrings("abcЯ", std.mem.sliceTo(&dst, 0));
+}
+
+test "program_status message carries every field of a report" {
+    const testing = std.testing;
+
+    var p: terminal.osc.Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=blocked:app=claude-code:id=a/b:kind=question:progress=40" ++
+        ":title=UGxhbg==:msg=QXBwbHk/");
+    const report = p.end('\x1b').?.program_status.report;
+    const msg: Message.ProgramStatus = .init(report);
+
+    try testing.expectEqual(apprt.action.ProgramStatus.State.blocked, msg.state);
+    try testing.expectEqual(apprt.action.ProgramStatus.Kind.question, msg.kind);
+    try testing.expectEqual(@as(?u8, 40), msg.progress);
+    try testing.expectEqualStrings("a/b", std.mem.sliceTo(&msg.id, 0));
+    try testing.expectEqualStrings("Plan", std.mem.sliceTo(&msg.title, 0));
+    try testing.expectEqualStrings("Apply?", std.mem.sliceTo(&msg.msg, 0));
+}
+
+test "program_status message for a bare state and an oversized message" {
+    const testing = std.testing;
+
+    var p: terminal.osc.Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=clear");
+    const bare: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expectEqual(apprt.action.ProgramStatus.State.clear, bare.state);
+    try testing.expectEqual(apprt.action.ProgramStatus.Kind.none, bare.kind);
+    try testing.expectEqual(@as(?u8, null), bare.progress);
+    try testing.expectEqualStrings("", std.mem.sliceTo(&bare.id, 0));
+    try testing.expectEqualStrings("", std.mem.sliceTo(&bare.msg, 0));
+
+    p.reset();
+    var text: [400]u8 = undefined;
+    @memset(&text, 'x');
+    const encoded = std.base64.standard.Encoder.calcSize(text.len);
+    var buf: [600]u8 = undefined;
+    const prefix = "7501;state=done:msg=";
+    @memcpy(buf[0..prefix.len], prefix);
+    _ = std.base64.standard.Encoder.encode(buf[prefix.len..], &text);
+    p.nextSlice(buf[0 .. prefix.len + encoded]);
+    const long: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expectEqual(@as(usize, 255), std.mem.sliceTo(&long.msg, 0).len);
 }

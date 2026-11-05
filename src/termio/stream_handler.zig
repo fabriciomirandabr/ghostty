@@ -356,6 +356,7 @@ pub const StreamHandler = struct {
             .report_pwd => try self.reportPwd(value.url),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => self.progressReport(value),
+            .program_status => self.programStatus(value),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .semantic_prompt => try self.semanticPrompt(value),
@@ -385,7 +386,6 @@ pub const StreamHandler = struct {
             .title_pop,
             .kitty_dnd,
             .osc_unknown,
-            .program_status,
             => {},
         }
     }
@@ -1952,7 +1952,38 @@ pub const StreamHandler = struct {
     fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
+
+    /// Forward an OSC 7501 report to the app, or answer a support query
+    /// with the fixed reply. The reply is only sent when the app runtime
+    /// can show reports, so a program never sees support that is not there.
+    fn programStatus(
+        self: *StreamHandler,
+        cmd: terminal.osc.Command.ProgramStatus,
+    ) void {
+        switch (cmd) {
+            .report => |report| self.surfaceMessageWriter(.{
+                .program_status = .init(report),
+            }),
+
+            .query => |terminator| {
+                if (comptime build_config.app_runtime == .gtk) return;
+                self.messageWriter(.{
+                    .write_stable = programStatusQueryReply(terminator),
+                });
+            },
+        }
+    }
 };
+
+/// The reply to an OSC 7501 support query, ended with the terminator
+/// the program used.
+fn programStatusQueryReply(terminator: terminal.osc.Terminator) []const u8 {
+    return switch (terminator) {
+        inline else => |t| "\x1b]7501;" ++
+            terminal.osc.program_status.query_reply ++
+            comptime t.string(),
+    };
+}
 
 /// Returns the raw (percent-decoded) host of an OSC 7 URI.
 ///
@@ -2083,6 +2114,31 @@ test "kitty clipboard write: oversized text replies EFBIG" {
     // Teardown leaves no transaction that could be committed and
     // forwarded to the macOS clipboard path.
     try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+}
+
+test "OSC 7501 query is answered with the reply and the matching terminator" {
+    const testing = std.testing;
+
+    const cases = [_]struct {
+        terminator: terminal.osc.Terminator,
+        expected: []const u8,
+    }{
+        .{
+            .terminator = .st,
+            .expected = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x1b\\",
+        },
+        .{
+            .terminator = .bel,
+            .expected = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x07",
+        },
+    };
+
+    for (cases) |case| {
+        const reply = programStatusQueryReply(case.terminator);
+        try testing.expect(std.mem.startsWith(u8, reply, "\x1b]7501;?"));
+        try testing.expect(std.mem.endsWith(u8, reply, case.terminator.string()));
+        try testing.expectEqualStrings(case.expected, reply);
+    }
 }
 
 test "tmux active_window notification is handled" {

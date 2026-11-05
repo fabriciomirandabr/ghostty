@@ -6,7 +6,7 @@ import AppKit
 struct TerminalRestorableTests {
     @Test
     func areYouForgettingToAddMigrationTests() {
-        #expect(TerminalRestorableState.version == 7)
+        #expect(TerminalRestorableState.version == 8)
         #expect(TerminalRestorableState.minimumVersion == 5)
 
         #expect(QuickTerminalRestorableState.version == 1)
@@ -58,6 +58,7 @@ struct TerminalRestorableTests {
         #expect(v5.effectiveFullscreenMode == nil)
         #expect(v5.tabColor == nil)
         #expect(v5.titleOverride == nil)
+        #expect(v5.workspaces == nil)
         #expect(v5.surfaceTree.contains(where: { $0.id.uuidString == "926F3F2A-824C-40C9-87CA-2CDCA4E11049" }))
         #expect(v5.surfaceTree.contains(where: { $0.id.uuidString == "AC5E829B-85FD-4C69-B196-2EE469C72A90" }))
 
@@ -81,6 +82,7 @@ struct TerminalRestorableTests {
         #expect(v7.effectiveFullscreenMode == .native)
         #expect(v7.tabColor == .green)
         #expect(v7.titleOverride == "1.3.0")
+        #expect(v7.workspaces == nil)
         #expect(v7.surfaceTree.contains(where: { $0.id.uuidString == "5D580A7A-81EA-47C6-BB9A-AD4B1783E478" }))
         #expect(v7.surfaceTree.contains(where: { $0.id.uuidString == "96EA1189-7482-41BC-A6CD-26E5190E4BFA" }))
 
@@ -106,8 +108,147 @@ struct TerminalRestorableTests {
         #expect(v7Generic.effectiveFullscreenMode == .native)
         #expect(v7Generic.tabColor == .green)
         #expect(v7Generic.titleOverride == "tip")
+        #expect(v7Generic.workspaces == nil)
         #expect(v7Generic.surfaceTree.contains(where: { $0.id.uuidString == "953CE952-D91D-4D36-AC72-9D0F1F6BCE73" }))
         #expect(v7Generic.surfaceTree.contains(where: { $0.id.uuidString == "D3223569-2E01-4BC5-9DB2-DBFC3AFF46D1" }))
+    }
+
+    @MainActor
+    @Test func restoreTerminal8() throws {
+        let v8 = try unarchive(terminalRestorableV8Data, className: "CodableBridge<Terminal>", as: CodableBridge<DummyTerminalRestorableState>.self)
+            .value.internalState
+        #expect(v8.focusedSurface == "v8")
+        #expect(v8.effectiveFullscreenMode == nil)
+        #expect(v8.tabColor == .green)
+        #expect(v8.titleOverride == "workspaces")
+        #expect(v8.surfaceTree.contains(where: { $0.id.uuidString == "6F1D2C3A-9B4E-4A7D-8C21-5E0F7A9B3D14" }))
+
+        let workspaces = try #require(v8.workspaces)
+        #expect(workspaces.selectedWorkspace == "3B7E9A12-5D40-4C8F-A6E1-9D2B7C0F4E58")
+        #expect(workspaces.workspaces.map(\.name) == ["Default", "Docs"])
+        #expect(workspaces.workspaces.map(\.directory) == ["/tmp/ws-home", "/tmp/ws-docs"])
+        #expect(workspaces.workspaces.map(\.isDefault) == [true, false])
+        #expect(workspaces.workspaces[1].selectedTab == "51C9E3A7-F280-4B6D-83A5-D7094E1B6C2F")
+
+        let tab = workspaces.workspaces[0].tabs[0]
+        #expect(tab.id == "E4A19C57-0B3D-4682-9F5A-7C18D2E6B403")
+        #expect(tab.titleOverride == "build")
+        #expect(tab.focusedSurface == "A83E5B90-12C7-4F6A-B3D8-0C4E9F716A25")
+        #expect(tab.surfaceTree.map { $0.id.uuidString } == [
+            "6F1D2C3A-9B4E-4A7D-8C21-5E0F7A9B3D14",
+            "A83E5B90-12C7-4F6A-B3D8-0C4E9F716A25",
+        ])
+
+        let docsTab = workspaces.workspaces[1].tabs[0]
+        #expect(docsTab.titleOverride == nil)
+        #expect(docsTab.focusedSurface == nil)
+    }
+
+    @MainActor
+    @Test func workspaceArchiveDecodesEverySurfaceOnce() throws {
+        let selectedViews = [CountingView(), CountingView()]
+        let otherViews = [CountingView()]
+        let allIDs = Set((selectedViews + otherViews).map(\.id))
+
+        let store = WorkspaceStore<CountingView>(
+            defaultDirectory: WorkspaceFixtures.home,
+            makeTab: { Self.makeCountingTab(selectedViews) })
+        try store.addWorkspace(name: "Other", directory: WorkspaceFixtures.home, makeTab: {
+            Self.makeCountingTab(otherViews)
+        })
+
+        let tree = try #require(store.selectedTab?.tree)
+        let state = TerminalRestorableState.InternalState<CountingView>(
+            focusedSurface: selectedViews[0].id.uuidString,
+            surfaceTree: tree,
+            effectiveFullscreenMode: nil,
+            tabColor: nil,
+            titleOverride: nil,
+            workspaces: store.makeState())
+        let data = try JSONEncoder().encode(state)
+
+        CountingView.resetDecodes()
+        let decoded = try JSONDecoder().decode(TerminalRestorableState.InternalState<CountingView>.self, from: data)
+
+        let decodedIDs = CountingView.decodedIDs.filter { allIDs.contains($0) }
+        #expect(decodedIDs.count == allIDs.count)
+        #expect(Set(decodedIDs) == allIDs)
+        #expect(decoded.restoredSurfaceTree.map(\.id) == selectedViews.map(\.id))
+    }
+
+    @MainActor
+    @Test func archiveWithoutWorkspacesKeepsSurfaceTree() throws {
+        let views = [CountingView(), CountingView()]
+        let tab = Self.makeCountingTab(views)
+        let state = TerminalRestorableState.InternalState<CountingView>(
+            focusedSurface: nil,
+            surfaceTree: tab.tree,
+            effectiveFullscreenMode: nil,
+            tabColor: nil,
+            titleOverride: nil,
+            workspaces: nil)
+        let data = try JSONEncoder().encode(state)
+
+        let decoded = try JSONDecoder().decode(TerminalRestorableState.InternalState<CountingView>.self, from: data)
+        #expect(decoded.surfaceTree.map(\.id) == views.map(\.id))
+        #expect(decoded.restoredSurfaceTree.map(\.id) == views.map(\.id))
+    }
+
+    @MainActor
+    private static func makeCountingTab(_ views: [CountingView]) -> WorkspaceTab<CountingView> {
+        var tree = SplitTree<CountingView>(view: views[0])
+        for view in views.dropFirst() {
+            guard let inserted = try? tree.inserting(view: view, at: views[0], direction: .right) else {
+                preconditionFailure("failed to build test tree")
+            }
+            tree = inserted
+        }
+        guard let tab = WorkspaceTab<CountingView>(tree: tree) else {
+            preconditionFailure("failed to build test tab")
+        }
+        return tab
+    }
+}
+
+final class CountingView: NSView, Codable, Identifiable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var decoded: [UUID] = []
+
+    static var decodedIDs: [UUID] {
+        lock.lock()
+        defer { lock.unlock() }
+        return decoded
+    }
+
+    static func resetDecodes() {
+        lock.lock()
+        decoded = []
+        lock.unlock()
+    }
+
+    let id: UUID
+
+    init(id: UUID = UUID()) {
+        self.id = id
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    enum CodingKeys: CodingKey { case id }
+
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        super.init(frame: .zero)
+        Self.lock.lock()
+        Self.decoded.append(id)
+        Self.lock.unlock()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
     }
 }
 

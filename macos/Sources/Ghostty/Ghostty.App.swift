@@ -8,6 +8,8 @@ protocol GhosttyAppDelegate: AnyObject {
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView?
+
+    func focusWorkspaceSurface(_ surfaceID: UUID, inWorkspace workspaceID: UUID)
 }
 
 extension Ghostty {
@@ -537,11 +539,14 @@ extension Ghostty {
         func shouldPresentNotification(notification: UNNotification) -> Bool {
             let userInfo = notification.request.content.userInfo
 
+            if userInfo[WorkspaceJobNotificationCenterSink.workspaceUserInfoKey] != nil { return true }
+
             // We always require the notification to be attached to a surface.
             guard let uuidString = userInfo["surface"] as? String,
                   let uuid = UUID(uuidString: uuidString),
                   let surface = delegate?.findSurface(forUUID: uuid),
-                  let window = surface.window else { return false }
+                  let window = surface.window ?? BaseTerminalController.controller(owning: surface)?.window
+            else { return false }
 
             // If we don't require focus then we're good!
             let requireFocus = userInfo["requireFocus"] as? Bool ?? true
@@ -611,6 +616,30 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_GOTO_TAB:
                 return gotoTab(app, target: target, tab: action.action.goto_tab)
+
+            case GHOSTTY_ACTION_NEW_WORKSPACE:
+                return workspaceAction(target: target, name: Notification.ghosttyNewWorkspace)
+
+            case GHOSTTY_ACTION_CLOSE_WORKSPACE:
+                return workspaceAction(
+                    target: target,
+                    name: Notification.ghosttyCloseWorkspace,
+                    isPerformable: WorkspaceTerminalController.isCloseWorkspacePerformable)
+
+            case GHOSTTY_ACTION_GOTO_WORKSPACE:
+                return workspaceAction(
+                    target: target,
+                    name: Notification.ghosttyGotoWorkspace,
+                    userInfo: [Notification.GotoWorkspaceKey: action.action.goto_workspace])
+
+            case GHOSTTY_ACTION_TOGGLE_WORKSPACE_OVERVIEW:
+                return workspaceAction(target: target, name: Notification.ghosttyToggleWorkspaceOverview)
+
+            case GHOSTTY_ACTION_TOGGLE_WORKSPACE_SWITCHER:
+                return workspaceAction(target: target, name: Notification.ghosttyToggleWorkspaceSwitcher)
+
+            case GHOSTTY_ACTION_TOGGLE_ACTIVITY_POPOVER:
+                return workspaceAction(target: target, name: Notification.ghosttyToggleActivityPopover)
 
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
@@ -758,6 +787,12 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_COMMAND_FINISHED:
                 commandFinished(app, target: target, v: action.action.command_finished)
+
+            case GHOSTTY_ACTION_COMMAND_STARTED:
+                commandStarted(app, target: target)
+
+            case GHOSTTY_ACTION_PROGRAM_STATUS:
+                programStatus(app, target: target, v: action.action.program_status)
 
             case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 return presentTerminal(app, target: target)
@@ -1318,7 +1353,10 @@ extension Ghostty {
 
                     // Similar to goto_split (see comment there) about our performability,
                     // we should make this more accurate later.
-                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    guard WorkspaceTabNavigation.isGotoTabPerformable(
+                        tabCount: surfaceView.window?.tabGroup?.windows.count ?? 0,
+                        isWorkspaceSurface: WorkspaceTerminalController.isWorkspaceSurface(surfaceView)
+                    ) else { return false }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,
@@ -1333,6 +1371,31 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        static func workspaceAction(
+            target: ghostty_target_s,
+            name: NSNotification.Name,
+            userInfo: [AnyHashable: Any]? = nil,
+            isPerformable: (SurfaceView) -> Bool = { _ in true }
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard WorkspaceTerminalController.isWorkspaceSurface(surfaceView),
+                      isPerformable(surfaceView) else { return false }
+
+                NotificationCenter.default.post(name: name, object: surfaceView, userInfo: userInfo)
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
         }
 
         private static func gotoSplit(
@@ -1624,6 +1687,53 @@ extension Ghostty {
             }
         }
 
+        private static func commandStarted(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("command started does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                DispatchQueue.main.async {
+                    surfaceView.commandDidStart()
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func programStatus(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_program_status_s
+        ) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("program status does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let report = ProgramStatusReport(c: v) else {
+                    Ghostty.logger.warning("program status with unknown state=\(v.state.rawValue, privacy: .public)")
+                    return
+                }
+                DispatchQueue.main.async {
+                    surfaceView.programStatus(report)
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func commandFinished(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1637,6 +1747,9 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
+                DispatchQueue.main.async {
+                    surfaceView.commandDidFinish()
+                }
 
                 // Determine if we even care about command finish notifications
                 guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return }
@@ -1857,6 +1970,9 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                DispatchQueue.main.async {
+                    surfaceView.childDidExit()
+                }
                 // We handle this when the window is visible and timetime_ms is greater than 0,
                 // which will rule out exit codes on launch
                 guard surfaceView.window != nil, v.timetime_ms > 0 else { return false }
@@ -2482,6 +2598,20 @@ extension Ghostty {
         /// Handle a received user notification. This is called when a user notification is clicked or dismissed by the user
         func handleUserNotification(response: UNNotificationResponse) {
             let userInfo = response.notification.request.content.userInfo
+
+            if let workspaceString = userInfo[WorkspaceJobNotificationCenterSink.workspaceUserInfoKey] as? String,
+               let workspaceID = UUID(uuidString: workspaceString),
+               let surfaceString = userInfo["surface"] as? String,
+               let surfaceID = UUID(uuidString: surfaceString) {
+                switch response.actionIdentifier {
+                case UNNotificationDefaultActionIdentifier, Ghostty.userNotificationActionShow:
+                    delegate?.focusWorkspaceSurface(surfaceID, inWorkspace: workspaceID)
+                default:
+                    break
+                }
+                return
+            }
+
             guard let uuidString = userInfo["surface"] as? String,
                   let uuid = UUID(uuidString: uuidString),
                   let surface = delegate?.findSurface(forUUID: uuid) else { return }
@@ -2489,6 +2619,9 @@ extension Ghostty {
             switch response.actionIdentifier {
             case UNNotificationDefaultActionIdentifier, Ghostty.userNotificationActionShow:
                 // The user clicked on a notification
+                if let workspaceID = WorkspaceTerminalController.workspaceID(containing: surface) {
+                    delegate?.focusWorkspaceSurface(uuid, inWorkspace: workspaceID)
+                }
                 surface.handleUserNotification(notification: response.notification, focus: true)
             case UNNotificationDismissActionIdentifier:
                 // The user dismissed the notification

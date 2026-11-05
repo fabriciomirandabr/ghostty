@@ -453,6 +453,48 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the tab overview."),
         }},
 
+        .new_workspace => comptime &.{.{
+            .action = .new_workspace,
+            .title = i18n.N_("New Workspace"),
+            .description = i18n.N_("Open the prompt to create a new workspace."),
+        }},
+
+        .close_workspace => comptime &.{.{
+            .action = .close_workspace,
+            .title = i18n.N_("Close Workspace"),
+            .description = i18n.N_("Close the current workspace."),
+        }},
+
+        .previous_workspace => comptime &.{.{
+            .action = .previous_workspace,
+            .title = i18n.N_("Previous Workspace"),
+            .description = i18n.N_("Go to the previous workspace."),
+        }},
+
+        .next_workspace => comptime &.{.{
+            .action = .next_workspace,
+            .title = i18n.N_("Next Workspace"),
+            .description = i18n.N_("Go to the next workspace."),
+        }},
+
+        .toggle_workspace_overview => comptime &.{.{
+            .action = .toggle_workspace_overview,
+            .title = i18n.N_("Toggle Workspace Overview"),
+            .description = i18n.N_("Toggle the grid that shows every workspace."),
+        }},
+
+        .toggle_workspace_switcher => comptime &.{.{
+            .action = .toggle_workspace_switcher,
+            .title = i18n.N_("Toggle Workspace Switcher"),
+            .description = i18n.N_("Toggle the quick switcher for workspaces."),
+        }},
+
+        .toggle_activity_popover => comptime &.{.{
+            .action = .toggle_activity_popover,
+            .title = i18n.N_("Toggle Activity Popover"),
+            .description = i18n.N_("Toggle the list of terminals that are running or need attention."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),
@@ -728,6 +770,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_workspace,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,

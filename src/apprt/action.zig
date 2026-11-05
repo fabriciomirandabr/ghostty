@@ -364,6 +364,32 @@ pub const Action = union(Key) {
     /// split or the window is fullscreen.
     resize_window: ResizeWindow,
 
+    /// Open the prompt to create a new workspace.
+    new_workspace,
+
+    /// Close the current workspace.
+    close_workspace,
+
+    /// Jump to a specific workspace. Must handle the scenario that the
+    /// workspace value is invalid.
+    goto_workspace: GotoWorkspace,
+
+    /// Toggle the workspace overview grid.
+    toggle_workspace_overview,
+
+    /// Toggle the workspace quick switcher.
+    toggle_workspace_switcher,
+
+    /// Toggle the activity popover.
+    toggle_activity_popover,
+
+    /// A command started running in the target surface, as reported by
+    /// shell integration.
+    command_started,
+
+    /// A program reported its status using OSC 7501.
+    program_status: ProgramStatus,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -436,9 +462,27 @@ pub const Action = union(Key) {
         copy_title_to_clipboard,
         move_tab_to_new_window,
         resize_window,
+        new_workspace,
+        close_workspace,
+        goto_workspace,
+        toggle_workspace_overview,
+        toggle_workspace_switcher,
+        toggle_activity_popover,
+        command_started,
+        program_status,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
+        }
+
+        test "command_started key is in sync with ghostty.h" {
+            const testing = std.testing;
+            const action: Action = .{ .command_started = {} };
+            try testing.expectEqual(Key.command_started, action.cval().key);
+            try testing.expectEqual(
+                @as(c_int, @backingInt(Key.toggle_activity_popover)) + 1,
+                @as(c_int, @backingInt(action.cval().key)),
+            );
         }
     };
 
@@ -478,7 +522,7 @@ pub const Action = union(Key) {
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
             4 => 24,
-            8 => 24,
+            8 => 40,
             else => unreachable,
         });
     }
@@ -584,6 +628,23 @@ pub const GotoTab = enum(c_int) {
     // test "ghostty.h GotoTab" {
     //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
     // }
+};
+
+/// The workspace to jump to. This is non-exhaustive so that integer values
+/// represent the index (one-based) of the workspace to jump to. Negative
+/// values are special values.
+pub const GotoWorkspace = enum(c_int) {
+    previous = -1,
+    next = -2,
+    _,
+
+    test "goto_workspace c values" {
+        const testing = std.testing;
+        try testing.expectEqual(@as(c_int, -1), @backingInt(GotoWorkspace.previous));
+        try testing.expectEqual(@as(c_int, -2), @backingInt(GotoWorkspace.next));
+        const third: GotoWorkspace = @fromBackingInt(3);
+        try testing.expectEqual(@as(c_int, 3), @backingInt(third));
+    }
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.
@@ -1023,6 +1084,115 @@ pub const CommandFinished = struct {
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
         };
+    }
+};
+
+pub const ProgramStatus = struct {
+    state: State,
+    kind: Kind,
+    progress: ?u8,
+    id: [:0]const u8,
+    title: [:0]const u8,
+    msg: [:0]const u8,
+
+    pub const State = enum(c_int) {
+        idle,
+        working,
+        done,
+        blocked,
+        @"error",
+        clear,
+
+        pub fn fromOsc(state: terminal.osc.program_status.State) State {
+            return switch (state) {
+                .idle => .idle,
+                .working => .working,
+                .done => .done,
+                .blocked => .blocked,
+                .@"error" => .@"error",
+                .clear => .clear,
+            };
+        }
+
+        test "ghostty.h ProgramStatus.State" {
+            try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRAM_STATUS_STATE_");
+        }
+    };
+
+    pub const Kind = enum(c_int) {
+        none,
+        permission,
+        question,
+        auth,
+
+        pub fn fromOsc(kind: ?terminal.osc.program_status.Kind) Kind {
+            return switch (kind orelse return .none) {
+                .permission => .permission,
+                .question => .question,
+                .auth => .auth,
+            };
+        }
+
+        test "ghostty.h ProgramStatus.Kind" {
+            try lib.checkGhosttyHEnum(Kind, "GHOSTTY_PROGRAM_STATUS_KIND_");
+        }
+    };
+
+    pub const C = extern struct {
+        state: State,
+        kind: Kind,
+        progress: i8,
+        id: [*:0]const u8,
+        title: [*:0]const u8,
+        msg: [*:0]const u8,
+    };
+
+    pub fn cval(self: ProgramStatus) C {
+        return .{
+            .state = self.state,
+            .kind = self.kind,
+            .progress = if (self.progress) |progress| @intCast(@min(progress, 100)) else -1,
+            .id = self.id.ptr,
+            .title = self.title.ptr,
+            .msg = self.msg.ptr,
+        };
+    }
+
+    test "program_status cval" {
+        const testing = std.testing;
+        const action: Action = .{ .program_status = .{
+            .state = .blocked,
+            .kind = .permission,
+            .progress = 40,
+            .id = "a/b",
+            .title = "T",
+            .msg = "M",
+        } };
+        const c = action.cval();
+        try testing.expectEqual(Action.Key.program_status, c.key);
+        try testing.expectEqual(State.blocked, c.value.program_status.state);
+        try testing.expectEqual(Kind.permission, c.value.program_status.kind);
+        try testing.expectEqual(@as(i8, 40), c.value.program_status.progress);
+        try testing.expectEqualStrings("a/b", std.mem.span(c.value.program_status.id));
+        try testing.expectEqualStrings("M", std.mem.span(c.value.program_status.msg));
+
+        const bare: ProgramStatus = .{
+            .state = .idle,
+            .kind = .none,
+            .progress = null,
+            .id = "",
+            .title = "",
+            .msg = "",
+        };
+        try testing.expectEqual(@as(i8, -1), bare.cval().progress);
+    }
+
+    test "program_status key is in sync with ghostty.h" {
+        const testing = std.testing;
+        try testing.expectEqual(
+            @as(c_int, @backingInt(Action.Key.command_started)) + 1,
+            @as(c_int, @backingInt(Action.Key.program_status)),
+        );
     }
 };
 

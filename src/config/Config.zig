@@ -3415,7 +3415,7 @@ keybind: Keybinds = .{},
 @"macos-window-buttons": MacWindowButtons = .visible,
 
 /// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
+/// "transparent", "tabs", "hidden", and "workspaces".
 ///
 /// The "native" style uses the native macOS titlebar with zero customization.
 /// The titlebar will match your window theme (see `window-theme`).
@@ -3449,12 +3449,44 @@ keybind: Keybinds = .{},
 /// areas of the frame to drag the window. This is a standard macOS behavior
 /// and not something Ghostty enables.
 ///
+/// The "workspaces" style uses a single window per group of workspaces. Each
+/// workspace is a folder with its own tabs, shown as pills in a custom
+/// titlebar, together with a per-terminal activity indicator, a grid of all
+/// workspaces and a quick switcher. Native macOS tabs are not used. This style
+/// also changes the default keybindings (only the ones that are not already
+/// set by a `keybind` entry of your own):
+///
+///   * `super+g` - `new_workspace`
+///   * `super+k` - `toggle_workspace_switcher`
+///   * `super+j` - `toggle_activity_popover`
+///   * `super+o` - `toggle_workspace_overview`
+///   * `super+shift+w` - `close_workspace`
+///   * `super+alt+1` to `super+alt+9` - `goto_workspace`
+///   * `super+shift+[` - `previous_workspace`
+///   * `super+shift+]` - `next_workspace`
+///   * `f2` - `prompt_tab_title`
+///
+/// The default keybindings are not changed when `keybind = clear` is used.
+///
 /// The default value is "transparent". This is an opinionated choice
 /// but its one I think is the most aesthetically pleasing and works in
 /// most cases.
 ///
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
+
+/// The directory where new terminals of the default workspace start when
+/// `macos-titlebar-style = workspaces`. Other workspaces start in the folder
+/// that was chosen when they were created.
+///
+/// The value must be an absolute path or a path prefixed with `~/` (the tilde
+/// is expanded to the user's home directory). A path that does not exist or
+/// is not a directory is reported as a configuration error.
+///
+/// If unset, the home directory of the user is used.
+///
+/// This is only used on macOS.
+@"workspace-default-directory": ?[:0]const u8 = null,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
@@ -3590,6 +3622,37 @@ keybind: Keybinds = .{},
 ///
 /// The default is true.
 @"macos-applescript": bool = true,
+
+/// If true, pasting on macOS while the clipboard holds an image and no text
+/// sends Ctrl+V (the byte 0x16) to the terminal instead of pasting.
+///
+/// Terminal applications such as coding agents read the image from the
+/// system clipboard themselves when they receive Ctrl+V, so this lets
+/// the paste shortcut (`paste_from_clipboard`, Cmd+V by default) attach
+/// a clipboard image. When the clipboard has any text, including a copied
+/// file path, the paste behaves normally.
+///
+/// If false, the paste is handled exactly as it is without this option.
+///
+/// This only affects the macOS app and the paste menu item and its
+/// shortcut. The default is true.
+@"macos-paste-image-sends-ctrl-v": bool = true,
+
+/// If true, the macOS app posts a system notification when a terminal's job
+/// finishes or needs your attention (a command that was running ends, a
+/// program reports that it is blocked or failed, or the bell rings) while
+/// that terminal is not the focused one in the active workspace and tab.
+///
+/// The notification title is the tab name and the workspace name, the body
+/// says whether the job is done or needs you, and clicking it switches to
+/// that workspace and tab. macOS asks for notification permission the first
+/// time the app launches.
+///
+/// If false, no such notifications are posted. Notifications requested by
+/// the terminal itself (such as OSC 9 and OSC 777) are not affected.
+///
+/// This only affects the macOS app. The default is true.
+@"workspace-notifications": bool = true,
 
 /// Customize the macOS app icon.
 ///
@@ -4952,6 +5015,45 @@ pub fn finalize(self: *Config) !void {
 
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
+
+    try self.finalizeWorkspaceDefaultDirectory(alloc);
+
+    if ((comptime builtin.target.os.tag.isDarwin()) and
+        self.@"macos-titlebar-style" == .workspaces)
+    {
+        try self.keybind.applyWorkspaceDefaults(alloc);
+    }
+}
+
+fn finalizeWorkspaceDefaultDirectory(self: *Config, alloc: Allocator) !void {
+    const dir = self.@"workspace-default-directory" orelse return;
+
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const expanded = expandHome(dir, &buf);
+
+    const err_name: ?[]const u8 = check: {
+        if (!std.fs.path.isAbsolute(expanded)) break :check "path is not absolute";
+        var opened = std.Io.Dir.openDirAbsolute(global.io(), expanded, .{}) catch |err|
+            break :check @errorName(err);
+        opened.close(global.io());
+        break :check null;
+    };
+
+    if (err_name) |reason| {
+        try self._diagnostics.append(alloc, .{
+            .message = try alloc.printSentinel(
+                "workspace-default-directory \"{s}\" is not usable: {s}",
+                .{ dir, reason },
+                0,
+            ),
+        });
+        self.@"workspace-default-directory" = null;
+        return;
+    }
+
+    if (!std.mem.eql(u8, expanded, dir)) {
+        self.@"workspace-default-directory" = try alloc.dupeSentinel(u8, expanded, 0);
+    }
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
@@ -6658,6 +6760,127 @@ pub const Keybinds = struct {
         table: []const u8,
     } = .root,
 
+    user_triggers: std.ArrayList(inputpkg.Binding.Trigger) = .empty,
+    user_cleared: bool = false,
+
+    const WorkspaceDefault = struct {
+        trigger: inputpkg.Binding.Trigger,
+        action: inputpkg.Binding.Action,
+        replaces: ?inputpkg.Binding.Action = null,
+    };
+
+    fn workspaceDefaults() [workspace_default_count]WorkspaceDefault {
+        var result: [workspace_default_count]WorkspaceDefault = undefined;
+        var n: usize = 0;
+
+        const singles = [_]WorkspaceDefault{
+            .{
+                .trigger = .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
+                .action = .{ .new_workspace = {} },
+                .replaces = .{ .navigate_search = .next },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = 'k' }, .mods = .{ .super = true } },
+                .action = .{ .toggle_workspace_switcher = {} },
+                .replaces = .{ .clear_screen = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = 'j' }, .mods = .{ .super = true } },
+                .action = .{ .toggle_activity_popover = {} },
+                .replaces = .{ .scroll_to_selection = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = 'o' }, .mods = .{ .super = true } },
+                .action = .{ .toggle_workspace_overview = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .shift = true } },
+                .action = .{ .close_workspace = {} },
+                .replaces = .{ .close_window = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .shift = true } },
+                .action = .{ .previous_workspace = {} },
+                .replaces = .{ .previous_tab = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .shift = true } },
+                .action = .{ .next_workspace = {} },
+                .replaces = .{ .next_tab = {} },
+            },
+            .{
+                .trigger = .{ .key = .{ .physical = .f2 } },
+                .action = .{ .prompt_tab_title = {} },
+            },
+        };
+        for (singles) |item| {
+            result[n] = item;
+            n += 1;
+        }
+
+        const first = inputpkg.Binding.Action.WorkspaceIndex.min;
+        const last = inputpkg.Binding.Action.WorkspaceIndex.max;
+        var i: u8 = first;
+        while (i <= last) : (i += 1) {
+            const digit: inputpkg.Key = switch (i) {
+                1 => .digit_1,
+                2 => .digit_2,
+                3 => .digit_3,
+                4 => .digit_4,
+                5 => .digit_5,
+                6 => .digit_6,
+                7 => .digit_7,
+                8 => .digit_8,
+                9 => .digit_9,
+                else => unreachable,
+            };
+            result[n] = .{
+                .trigger = .{ .key = .{ .physical = digit }, .mods = .{ .super = true, .alt = true } },
+                .action = .{ .goto_workspace = .{ .index = i } },
+            };
+            n += 1;
+            result[n] = .{
+                .trigger = .{ .key = .{ .unicode = '0' + @as(u21, i) }, .mods = .{ .super = true, .alt = true } },
+                .action = .{ .goto_workspace = .{ .index = i } },
+            };
+            n += 1;
+        }
+
+        return result;
+    }
+
+    const workspace_default_count = 8 + 2 * 9;
+
+    pub fn applyWorkspaceDefaults(self: *Keybinds, alloc: Allocator) Allocator.Error!void {
+        if (self.user_cleared) return;
+
+        for (workspaceDefaults()) |item| {
+            const written = for (self.user_triggers.items) |t| {
+                if (t.equal(item.trigger)) break true;
+            } else false;
+            if (written) continue;
+
+            if (self.set.get(item.trigger)) |entry| {
+                const replaces = item.replaces orelse continue;
+                switch (entry.value_ptr.*) {
+                    .leaf => |leaf| if (!leaf.action.equal(replaces)) continue,
+                    .leader, .leaf_chained => continue,
+                }
+            }
+
+            try self.set.put(alloc, item.trigger, item.action);
+        }
+    }
+
+    fn recordUserTriggers(self: *Keybinds, alloc: Allocator, input: []const u8) Allocator.Error!void {
+        var parser = inputpkg.Binding.Parser.init(input) catch unreachable;
+        while (parser.next() catch unreachable) |elem| switch (elem) {
+            .leader => |t| try self.user_triggers.append(alloc, t),
+            .binding => |b| try self.user_triggers.append(alloc, b.trigger),
+            .chain => {},
+        };
+    }
+
     pub fn init(self: *Keybinds, alloc: Allocator) !void {
         // We don't clear the memory because it's in the arena and unlikely
         // to be free-able anyways (since arenas can only clear the last
@@ -6666,6 +6889,8 @@ pub const Keybinds = struct {
         self.set = .{};
         self.tables = .empty;
         self.chain_target = .root;
+        self.user_triggers = .empty;
+        self.user_cleared = false;
 
         // keybinds for opening and reloading config
         try self.set.put(
@@ -7464,6 +7689,7 @@ pub const Keybinds = struct {
             self.set = .{};
             self.tables = .empty;
             self.chain_target = .root;
+            self.user_cleared = true;
             return;
         }
 
@@ -7534,6 +7760,7 @@ pub const Keybinds = struct {
         // Parse into default set
         try self.set.parseAndPut(alloc, value);
         self.chain_target = .root;
+        try self.recordUserTriggers(alloc, value);
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -7549,6 +7776,8 @@ pub const Keybinds = struct {
         return .{
             .set = try self.set.clone(alloc),
             .tables = tables,
+            .user_triggers = try self.user_triggers.clone(alloc),
+            .user_cleared = self.user_cleared,
         };
     }
 
@@ -9283,6 +9512,7 @@ pub const MacTitlebarStyle = enum {
     transparent,
     tabs,
     hidden,
+    workspaces,
 };
 
 /// See macos-titlebar-proxy-icon
@@ -10716,6 +10946,28 @@ test "parse e: command and args" {
     try testing.expectEqualStrings(cmd.direct[2], "bar baz");
 }
 
+test "macos-paste-image-sends-ctrl-v: default is true and can be disabled" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    try testing.expect(cfg.@"macos-paste-image-sends-ctrl-v");
+
+    var it: TestIterator = .{ .data = &.{"--macos-paste-image-sends-ctrl-v=false"} };
+    try cfg.loadIter(cfg._arena.?.allocator(), &it);
+    try testing.expect(!cfg.@"macos-paste-image-sends-ctrl-v");
+}
+
+test "workspace-notifications: default is true and can be disabled" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    try testing.expect(cfg.@"workspace-notifications");
+
+    var it: TestIterator = .{ .data = &.{"--workspace-notifications=false"} };
+    try cfg.loadIter(cfg._arena.?.allocator(), &it);
+    try testing.expect(!cfg.@"workspace-notifications");
+}
+
 test "clone default" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -10867,6 +11119,167 @@ test "working-directory expands tilde" {
         &buf,
     ) catch "~/projects/ghostty";
     try testing.expectEqualStrings(expected, cfg.@"working-directory".?.value().?);
+}
+
+fn workspacesTestAction(cfg: *const Config, trigger: inputpkg.Binding.Trigger) ?inputpkg.Binding.Action {
+    const entry = cfg.keybind.set.get(trigger) orelse return null;
+    return switch (entry.value_ptr.*) {
+        .leaf => |leaf| leaf.action,
+        .leader, .leaf_chained => null,
+    };
+}
+
+fn workspacesTestConfig(alloc: Allocator, args: []const []const u8) !Config {
+    var cfg = try Config.default(alloc);
+    errdefer cfg.deinit();
+    var it: TestIterator = .{ .data = args };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+    return cfg;
+}
+
+const workspaces_super_k: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = 'k' }, .mods = .{ .super = true } };
+const workspaces_super_g: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } };
+const workspaces_super_j: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = 'j' }, .mods = .{ .super = true } };
+const workspaces_super_o: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = 'o' }, .mods = .{ .super = true } };
+const workspaces_super_shift_w: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .shift = true } };
+const workspaces_super_shift_open: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .shift = true } };
+const workspaces_super_shift_close: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .shift = true } };
+const workspaces_super_alt_3: inputpkg.Binding.Trigger = .{ .key = .{ .unicode = '3' }, .mods = .{ .super = true, .alt = true } };
+const workspaces_f2: inputpkg.Binding.Trigger = .{ .key = .{ .physical = .f2 } };
+
+test "workspaces: style sets the default keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--macos-titlebar-style=workspaces"});
+    defer cfg.deinit();
+
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .new_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .toggle_workspace_switcher);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_j).? == .toggle_activity_popover);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_o).? == .toggle_workspace_overview);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_w).? == .close_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_open).? == .previous_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_close).? == .next_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_f2).? == .prompt_tab_title);
+
+    const goto = workspacesTestAction(&cfg, workspaces_super_alt_3).?;
+    try testing.expect(goto == .goto_workspace);
+    try testing.expectEqual(@as(u8, 3), goto.goto_workspace.index);
+
+    const physical_goto = workspacesTestAction(&cfg, .{
+        .key = .{ .physical = .digit_9 },
+        .mods = .{ .super = true, .alt = true },
+    }).?;
+    try testing.expectEqual(@as(u8, 9), physical_goto.goto_workspace.index);
+
+    const by_action = cfg.keybind.set.getTrigger(.{ .new_workspace = {} }).?;
+    try testing.expect(by_action.equal(workspaces_super_g));
+}
+
+test "workspaces: other styles keep the factory keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--macos-titlebar-style=transparent"});
+    defer cfg.deinit();
+
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .clear_screen);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_j).? == .scroll_to_selection);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .navigate_search);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_w).? == .close_window);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_open).? == .previous_tab);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_close).? == .next_tab);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_o) == null);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_f2) == null);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_alt_3) == null);
+}
+
+test "workspaces: user keybinds are preserved" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{
+        "--macos-titlebar-style=workspaces",
+        "--keybind=super+k=clear_screen",
+        "--keybind=super+shift+w=close_window",
+        "--keybind=super+o=text:x",
+        "--keybind=super+g=unbind",
+    });
+    defer cfg.deinit();
+
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .clear_screen);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_w).? == .close_window);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_o).? == .text);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g) == null);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_j).? == .toggle_activity_popover);
+}
+
+test "workspaces: keybind clear disables the defaults" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{
+        "--macos-titlebar-style=workspaces",
+        "--keybind=clear",
+        "--keybind=super+t=new_tab",
+    });
+    defer cfg.deinit();
+
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g) == null);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_f2) == null);
+}
+
+test "workspaces: defaults survive clone and are idempotent" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{
+        "--macos-titlebar-style=workspaces",
+        "--keybind=super+k=clear_screen",
+    });
+    defer cfg.deinit();
+    try cfg.finalize();
+
+    var copy = try cfg.clone(testing.allocator);
+    defer copy.deinit();
+    try copy.finalize();
+
+    try testing.expect(workspacesTestAction(&copy, workspaces_super_k).? == .clear_screen);
+    try testing.expect(workspacesTestAction(&copy, workspaces_super_g).? == .new_workspace);
+}
+
+test "workspaces: default directory expands tilde" {
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--workspace-default-directory=~/"});
+    defer cfg.deinit();
+
+    const value = cfg.@"workspace-default-directory".?;
+    try testing.expect(std.fs.path.isAbsolute(value));
+    try testing.expect(value[0] != '~');
+    try testing.expectEqual(@as(usize, 0), cfg._diagnostics.items().len);
+}
+
+test "workspaces: default directory empty value is null" {
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--workspace-default-directory="});
+    defer cfg.deinit();
+
+    try testing.expect(cfg.@"workspace-default-directory" == null);
+    try testing.expectEqual(@as(usize, 0), cfg._diagnostics.items().len);
+}
+
+test "workspaces: default directory that does not exist is a diagnostic" {
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--workspace-default-directory=/nonexistent/workspaces/test"});
+    defer cfg.deinit();
+
+    try testing.expect(cfg.@"workspace-default-directory" == null);
+    try testing.expectEqual(@as(usize, 1), cfg._diagnostics.items().len);
 }
 
 test "changed" {

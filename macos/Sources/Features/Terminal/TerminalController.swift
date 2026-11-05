@@ -21,6 +21,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let nib = switch config.macosTitlebarStyle {
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
+        case .workspaces: "TerminalWorkspaces"
         case .transparent: "TerminalTransparentTitlebar"
         case .tabs:
 #if compiler(>=6.2)
@@ -145,7 +146,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         center.removeObserver(self)
     }
 
-    private func cancelPendingInitialPresentation() {
+    func cancelPendingInitialPresentation() {
         pendingInitialPresentation?.cancel()
         pendingInitialPresentation = nil
     }
@@ -182,7 +183,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If our surface tree is now nil then we close our window.
         if to.isEmpty {
-            self.window?.close()
+            surfaceTreeDidBecomeEmpty()
+        }
+    }
+
+    func surfaceTreeDidBecomeEmpty() {
+        self.window?.close()
+    }
+
+    func makeTerminalViewContainer() -> TerminalViewContainer {
+        TerminalViewContainer {
+            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
     }
 
@@ -245,13 +256,29 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // by something like an App Intent) then we prefer the most previous main.
     static private(set) weak var lastMain: TerminalController?
 
+    static func make(
+        _ ghostty: Ghostty.App,
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
+    ) -> TerminalController {
+        let config = ghostty.config
+        if config.windowDecorations && config.macosTitlebarStyle == .workspaces {
+            return WorkspaceTerminalController(
+                ghostty,
+                withBaseConfig: baseConfig,
+                withSurfaceTree: tree)
+        }
+
+        return TerminalController(ghostty, withBaseConfig: baseConfig, withSurfaceTree: tree)
+    }
+
     /// The "new window" action.
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
         withParent explicitParent: NSWindow? = nil
     ) -> TerminalController {
-        let c = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        let c = TerminalController.make(ghostty, withBaseConfig: baseConfig)
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
@@ -356,7 +383,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // before moving into the new window
         let treeSize: CGSize? = tree.root?.viewBounds()
 
-        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+        let c = TerminalController.make(ghostty, withSurfaceTree: tree)
         if let inheritBackgroundOpacity {
             c.isBackgroundOpaque = inheritBackgroundOpacity
         }
@@ -426,6 +453,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let parent,
               let parentController = parent.windowController as? TerminalController else {
             return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
+        }
+
+        if let workspaceController = parentController as? WorkspaceTerminalController {
+            workspaceController.newTab(baseConfig: baseConfig)
+            return workspaceController
         }
 
         // If our parent is in non-native fullscreen, then new tabs do not work.
@@ -979,14 +1011,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    var hasSurfaceNeedingQuitConfirmation: Bool {
+        surfaceTree.contains(where: { $0.needsConfirmQuit })
+    }
+
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
         // The window we use for confirmations. Try to find the first window that
         // needs quit confirmation. This lets us attach the confirmation to something
         // that is running.
         guard let confirmWindow = all
-            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
-            .surfaceTree.first(where: { $0.needsConfirmQuit })?
+            .first(where: { $0.hasSurfaceNeedingQuitConfirmation })?
             .window
         else {
             closeAllWindowsImmediately()
@@ -1113,9 +1148,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
-        }
+        let container = makeTerminalViewContainer()
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
@@ -1616,7 +1649,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         NSAnimationContext.endGrouping()
     }
 
-    @objc private func onGotoTab(notification: SwiftUI.Notification) {
+    @objc func onGotoTab(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         guard let window = self.window else { return }

@@ -1186,6 +1186,23 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             };
         },
 
+        .program_status => |v| {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .program_status,
+                .{
+                    .state = v.state,
+                    .kind = v.kind,
+                    .progress = v.progress,
+                    .id = std.mem.sliceTo(&v.id, 0),
+                    .title = std.mem.sliceTo(&v.title, 0),
+                    .msg = std.mem.sliceTo(&v.msg, 0),
+                },
+            ) catch |err| {
+                log.warn("apprt failed to report program status err={}", .{err});
+            };
+        },
+
         .selection_scroll_tick => |active| {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
@@ -1193,6 +1210,14 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .start_command => {
             self.command_timer = .now(global.io(), .awake);
+
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .command_started,
+                {},
+            ) catch |err| {
+                log.warn("apprt failed to notify command start={}", .{err});
+            };
         },
 
         .stop_command => |v| timer: {
@@ -5594,6 +5619,50 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_tab_overview => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_tab_overview,
+            {},
+        ),
+
+        .new_workspace => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .new_workspace,
+            {},
+        ),
+
+        .close_workspace => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .close_workspace,
+            {},
+        ),
+
+        inline .previous_workspace,
+        .next_workspace,
+        .goto_workspace,
+        => |v, tag| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_workspace,
+            switch (tag) {
+                .previous_workspace => .previous,
+                .next_workspace => .next,
+                .goto_workspace => @fromBackingInt(@intCast(v.index)),
+                else => comptime unreachable,
+            },
+        ),
+
+        .toggle_workspace_overview => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_workspace_overview,
+            {},
+        ),
+
+        .toggle_workspace_switcher => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_workspace_switcher,
+            {},
+        ),
+
+        .toggle_activity_popover => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_activity_popover,
             {},
         ),
 

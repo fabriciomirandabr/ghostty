@@ -1,3 +1,13 @@
+## Ghostty Workspaces
+
+This fork adds workspaces to Ghostty on macOS: one window, one workspace per
+project folder, tabs as terminals, an activity badge and a grid of all
+workspaces. Read [docs/workspaces.md](docs/workspaces.md) or download a build
+from [Releases](https://github.com/fabriciomirandabr/ghostty/releases).
+The upstream README follows unchanged.
+
+---
+
 <!-- LOGO -->
 <h1>
 <p align="center">

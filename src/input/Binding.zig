@@ -597,6 +597,53 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Open the prompt to create a new workspace.
+    ///
+    /// Workspaces are only available on macOS with
+    /// `macos-titlebar-style = workspaces`. In any other configuration this
+    /// action is not performed.
+    new_workspace,
+
+    /// Close the current workspace. The default workspace cannot be closed.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    close_workspace,
+
+    /// Go to the workspace with the specific index, starting from 1 and up to
+    /// 9. An index of 0 or higher than 9 is invalid.
+    ///
+    /// If the workspace number is higher than the number of workspaces,
+    /// nothing happens.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    goto_workspace: WorkspaceIndex,
+
+    /// Go to the previous workspace, wrapping around at the first one.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    previous_workspace,
+
+    /// Go to the next workspace, wrapping around at the last one.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    next_workspace,
+
+    /// Toggle the grid that shows every workspace.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    toggle_workspace_overview,
+
+    /// Toggle the quick switcher that filters workspaces by name or folder.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    toggle_workspace_switcher,
+
+    /// Toggle the popover that lists the terminals that are running or need
+    /// attention.
+    ///
+    /// Only available on macOS with `macos-titlebar-style = workspaces`.
+    toggle_activity_popover,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1130,6 +1177,32 @@ pub const Action = union(enum) {
         pub const default: CopyToClipboard = .mixed;
     };
 
+    pub const WorkspaceIndex = struct {
+        index: u8,
+
+        pub const min: u8 = 1;
+        pub const max: u8 = 9;
+
+        pub fn parse(param: []const u8) !WorkspaceIndex {
+            const index = std.fmt.parseInt(u8, param, 10) catch
+                return Error.InvalidFormat;
+            if (index < min or index > max) return Error.InvalidFormat;
+            return .{ .index = index };
+        }
+
+        pub fn clone(
+            self: WorkspaceIndex,
+            alloc: Allocator,
+        ) Allocator.Error!WorkspaceIndex {
+            _ = alloc;
+            return self;
+        }
+
+        pub fn format(self: WorkspaceIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writer.print("{d}", .{self.index});
+        }
+    };
+
     pub const WriteScreen = struct {
         action: WriteScreen.Action,
         emit: WriteScreen.Format,
@@ -1451,6 +1524,14 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .toggle_tab_overview,
+            .new_workspace,
+            .close_workspace,
+            .goto_workspace,
+            .previous_workspace,
+            .next_workspace,
+            .toggle_workspace_overview,
+            .toggle_workspace_switcher,
+            .toggle_activity_popover,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3464,6 +3545,64 @@ test "parse: action with a tuple" {
 
     // invalid type
     try testing.expectError(Error.InvalidFormat, parseSingle("a=resize_split:up,four"));
+}
+
+test "parse: workspace actions without parameters" {
+    const testing = std.testing;
+
+    const cases = .{
+        .{ "a=new_workspace", Action{ .new_workspace = {} } },
+        .{ "a=close_workspace", Action{ .close_workspace = {} } },
+        .{ "a=previous_workspace", Action{ .previous_workspace = {} } },
+        .{ "a=next_workspace", Action{ .next_workspace = {} } },
+        .{ "a=toggle_workspace_overview", Action{ .toggle_workspace_overview = {} } },
+        .{ "a=toggle_workspace_switcher", Action{ .toggle_workspace_switcher = {} } },
+        .{ "a=toggle_activity_popover", Action{ .toggle_activity_popover = {} } },
+    };
+
+    inline for (cases) |case| {
+        const binding = try parseSingle(case[0]);
+        try testing.expect(binding.action.equal(case[1]));
+        try testing.expectEqual(Action.Scope.surface, binding.action.scope());
+        try testing.expectError(Error.InvalidFormat, parseSingle(case[0] ++ ":1"));
+    }
+}
+
+test "parse: workspace goto_workspace index" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=goto_workspace:3");
+        try testing.expect(binding.action == .goto_workspace);
+        try testing.expectEqual(@as(u8, 3), binding.action.goto_workspace.index);
+        try testing.expectEqual(Action.Scope.surface, binding.action.scope());
+    }
+
+    try testing.expectEqual(
+        @as(u8, 1),
+        (try parseSingle("a=goto_workspace:1")).action.goto_workspace.index,
+    );
+    try testing.expectEqual(
+        @as(u8, 9),
+        (try parseSingle("a=goto_workspace:9")).action.goto_workspace.index,
+    );
+
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:0"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:10"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:x"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
+}
+
+test "parse: workspace goto_workspace format round trip" {
+    const testing = std.testing;
+
+    const binding = try parseSingle("a=goto_workspace:7");
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try binding.action.format(&writer);
+    try testing.expectEqualStrings("goto_workspace:7", writer.buffered());
+    try testing.expect(binding.action.equal(try binding.action.clone(testing.allocator)));
 }
 
 test "parse: chain" {

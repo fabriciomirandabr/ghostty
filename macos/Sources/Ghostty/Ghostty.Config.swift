@@ -220,6 +220,15 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var workspaceDefaultDirectory: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>?
+            let key = "workspace-default-directory"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
         var windowPositionX: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
@@ -475,6 +484,29 @@ extension Ghostty {
             )
         }
 
+        var foregroundColor: Color {
+            var color: ghostty_config_color_s = .init()
+            let key = "foreground"
+            guard let config = self.config,
+                  ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return Color(NSColor.textColor)
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
+        var fontSize: Int? {
+            guard let config = self.config else { return nil }
+            var v: Float32 = 0
+            let key = "font-size"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))), v > 0 else { return nil }
+            return Int(v.rounded())
+        }
+
         var backgroundOpacity: Double {
             guard let config = self.config else { return 1 }
             var v: Double = 1
@@ -668,6 +700,30 @@ extension Ghostty {
             guard let config = self.config else { return true }
             var v = false
             let key = "macos-applescript"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var macosPasteImageSendsCtrlV: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-paste-image-sends-ctrl-v"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var workspaceNotifications: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "workspace-notifications"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var desktopNotifications: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "desktop-notifications"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
             return v
         }
@@ -915,7 +971,7 @@ extension Ghostty.Config {
 
     enum MacOSTitlebarStyle: String {
         static let `default` = MacOSTitlebarStyle.transparent
-        case native, transparent, tabs, hidden
+        case native, transparent, tabs, hidden, workspaces
     }
 
     enum DragHandle: String {

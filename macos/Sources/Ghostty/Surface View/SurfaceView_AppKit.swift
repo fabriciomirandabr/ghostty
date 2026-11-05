@@ -22,6 +22,8 @@ extension Ghostty {
         // The progress report (if any)
         override var progressReport: Action.ProgressReport? {
             didSet {
+                applyActivity(.progress(progressReport?.state ?? .remove))
+
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
                 progressReportTimer = nil
@@ -97,7 +99,7 @@ extension Ghostty {
         ///
         /// We track this to restore surface occlusion state
         /// after this surface is dragged to another window
-        var isWindowVisible = false
+        var isWindowVisible = true
 
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
@@ -108,6 +110,14 @@ extension Ghostty {
 
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
+
+        @Published private(set) var activityState: SurfaceActivityState = .idle
+
+        @Published private(set) var lastCommand: String?
+
+        private var shellCommand: String?
+        private var activitySignals = SurfaceActivityState.Signals()
+        private var activityDoneTimer: Timer?
 
         /// A clipboard confirmation waiting to be handled by its controller.
         @Published var pendingClipboardConfirmation: ClipboardConfirmationRequest? {
@@ -435,6 +445,60 @@ extension Ghostty {
 
             // Cancel progress report timer
             progressReportTimer?.invalidate()
+
+            activityDoneTimer?.invalidate()
+        }
+
+        func commandDidStart() {
+            if !title.isEmpty { shellCommand = title }
+            applyActivity(.commandStarted)
+        }
+
+        var jobActivity: WorkspaceJobActivity {
+            let now = Date()
+            return WorkspaceJobActivity(
+                state: activitySignals.state(at: now),
+                detail: activitySignals.programDetail(at: now),
+                attentionIsDesktopNotification: activitySignals.attentionIsOnlyDesktopNotification(at: now)
+            )
+        }
+
+        func programStatus(_ report: ProgramStatusReport) {
+            applyActivity(.programStatus(report))
+        }
+
+        func commandDidFinish() {
+            applyActivity(.commandFinished)
+        }
+
+        func childDidExit() {
+            applyActivity(.childExited)
+        }
+
+        private func clearAttention() {
+            bell = false
+            applyActivity(.attentionCleared)
+        }
+
+        private func applyActivity(_ event: SurfaceActivityState.Event) {
+            let now = Date()
+            activitySignals = activitySignals.applying(event, at: now)
+            refreshActivityState(at: now)
+        }
+
+        private func refreshActivityState(at now: Date) {
+            let next = activitySignals.state(at: now)
+            if activityState != next { activityState = next }
+
+            let command = activitySignals.programDetail(at: now) ?? shellCommand
+            if lastCommand != command { lastCommand = command }
+
+            activityDoneTimer?.invalidate()
+            activityDoneTimer = nil
+            guard next == .done, let remaining = activitySignals.doneExpiry(at: now) else { return }
+            activityDoneTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+                self?.refreshActivityState(at: Date())
+            }
         }
 
         override func endSearch() {
@@ -467,7 +531,7 @@ extension Ghostty {
                 focusInstant = ContinuousClock.now
 
                 // We unset our bell state if we gained focus
-                bell = false
+                clearAttention()
 
                 // Remove any notifications for this surface once we gain focus.
                 if !notificationIdentifiers.isEmpty {
@@ -821,6 +885,7 @@ extension Ghostty {
         @objc private func ghosttyBellDidRing(_ notification: SwiftUI.Notification) {
             // Bell state goes to true
             bell = true
+            applyActivity(.bell)
         }
 
         @objc private func windowDidChangeScreen(notification: SwiftUI.Notification) {
@@ -1124,7 +1189,7 @@ extension Ghostty {
             }
 
             // On any keyDown event we unset our bell state
-            bell = false
+            clearAttention()
 
             // We need to translate the mods (maybe) to handle configs such as option-as-alt
             let translationModsGhostty = Ghostty.eventModifierFlags(
@@ -1665,6 +1730,14 @@ extension Ghostty {
 
         @IBAction func paste(_ sender: Any?) {
             guard let surface = self.surface else { return }
+            if PasteboardImageDetection.pasteAction(
+                sendsCtrlVForImages: derivedConfig.pasteImageSendsCtrlV,
+                types: NSPasteboard.general.types ?? []) == .sendCtrlV {
+                if surfaceModel?.perform(action: PasteboardImageDetection.ctrlVAction) != true {
+                    AppDelegate.logger.warning("action failed action=\(PasteboardImageDetection.ctrlVAction, privacy: .public)")
+                }
+                return
+            }
             let action = "paste_from_clipboard"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
@@ -1793,6 +1866,10 @@ extension Ghostty {
 
         /// Show a user notification and associate it with this surface
         func showUserNotification(title: String, body: String, requireFocus: Bool = true) {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyActivity(.notification)
+            }
+
             let content = UNMutableNotificationContent()
             content.title = title
             content.subtitle = self.title
@@ -1865,6 +1942,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let pasteImageSendsCtrlV: Bool
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1874,6 +1952,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.pasteImageSendsCtrlV = true
             }
 
             init(_ config: Ghostty.Config) {
@@ -1884,6 +1963,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.pasteImageSendsCtrlV = config.macosPasteImageSendsCtrlV
             }
         }
 

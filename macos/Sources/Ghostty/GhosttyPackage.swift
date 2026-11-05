@@ -349,6 +349,14 @@ extension Ghostty.Notification {
     /// New tab. Has base surface config requested in userinfo.
     static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
 
+    static let ghosttyNewWorkspace = Notification.Name("com.mitchellh.ghostty.newWorkspace")
+    static let ghosttyCloseWorkspace = Notification.Name("com.mitchellh.ghostty.closeWorkspace")
+    static let ghosttyGotoWorkspace = Notification.Name("com.mitchellh.ghostty.gotoWorkspace")
+    static let GotoWorkspaceKey = ghosttyGotoWorkspace.rawValue
+    static let ghosttyToggleWorkspaceOverview = Notification.Name("com.mitchellh.ghostty.toggleWorkspaceOverview")
+    static let ghosttyToggleWorkspaceSwitcher = Notification.Name("com.mitchellh.ghostty.toggleWorkspaceSwitcher")
+    static let ghosttyToggleActivityPopover = Notification.Name("com.mitchellh.ghostty.toggleActivityPopover")
+
     /// New window. Has base surface config requested in userinfo.
     static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
 
