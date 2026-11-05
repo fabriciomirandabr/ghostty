@@ -35,6 +35,10 @@ extension TerminalRestorable {
         // version upgrading or something but for now we only have one version so we
         // don't bother.
         let current = aDecoder.decodeInteger(forKey: Self.versionKey)
+        guard current != 0 else {
+            AppDelegate.logger.debug("no saved state to restore: \(String(describing: Self.self), privacy: .public)")
+            return nil
+        }
         guard current >= Self.minimumVersion else {
             AppDelegate.logger.error("error restoring terminal: version not supported: expected=\(Self.minimumVersion, privacy: .public), got=\(current, privacy: .public)")
             return nil
@@ -165,7 +169,8 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         } else {
             c = TerminalController.make(
                 appDelegate.ghostty,
-                withSurfaceTree: state.surfaceTree)
+                withSurfaceTree: state.surfaceTree,
+                windowOrigin: .restoredWithoutWorkspaces)
         }
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)

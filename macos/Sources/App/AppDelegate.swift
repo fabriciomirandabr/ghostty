@@ -385,6 +385,11 @@ class AppDelegate: NSObject,
                 undoManager.disableUndoRegistration()
                 _ = TerminalController.newWindow(ghostty)
                 undoManager.enableUndoRegistration()
+            } else if !TerminalController.all.isEmpty,
+                      let recovered = WorkspaceTerminalController.persistedWorkspaces(forLaunchRecoveryIn: ghostty) {
+                undoManager.disableUndoRegistration()
+                _ = TerminalController.newWindow(ghostty, recoveredWorkspaces: recovered)
+                undoManager.enableUndoRegistration()
             }
         }
     }

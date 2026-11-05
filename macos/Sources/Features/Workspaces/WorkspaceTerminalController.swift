@@ -81,12 +81,14 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     private var currentFontSize: Int?
     private var observedSurfaceIDs: [UUID] = []
     private var wasOverlayOpen = false
+    private let persistence = WorkspacePersistence.shared
 
     init(
         _ ghostty: Ghostty.App,
         withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
         withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
-        restoring state: WorkspacesState<Ghostty.SurfaceView>? = nil
+        restoring state: WorkspacesState<Ghostty.SurfaceView>? = nil,
+        origin: WorkspaceWindowOrigin = .fresh
     ) {
         guard let app = ghostty.app else { preconditionFailure("app must be loaded") }
 
@@ -95,6 +97,11 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         if let state {
             store = WorkspaceStore(restoring: state, defaultDirectory: defaultDirectory) {
                 WorkspaceTerminalController.makeShellTab(app, directory: defaultDirectory)
+            }
+            if let base, let defaultWorkspace = store.workspaces.first {
+                let tab = Self.makeRequestedTab(app, base: base, directory: defaultWorkspace.directory)
+                store.addTab(tab, to: defaultWorkspace.id)
+                store.select(workspaceID: defaultWorkspace.id, tabID: tab.id)
             }
         } else {
             let firstTree = tree ?? SplitTree(view: Ghostty.SurfaceView(
@@ -115,6 +122,11 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
 
         super.init(ghostty, withBaseConfig: base, withSurfaceTree: store.selectedTab?.tree)
 
+        if state != nil {
+            persistence.register(self, origin: .restoredWorkspaces, state: persistedState())
+        } else {
+            persistence.register(self, origin: origin)
+        }
         store.delegate = self
         Self.registerOwner(self, of: store.allSurfaces)
         WorkspaceJobNotificationCenterSink.requestAuthorizationIfEnabled(
@@ -176,10 +188,83 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             selector: #selector(onToggleActivityPopover(_:)),
             name: Ghostty.Notification.ghosttyToggleActivityPopover,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(applicationWillTerminate(_:)),
+            name: NSApplication.willTerminateNotification,
+            object: nil)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported for this view")
+    }
+
+    static func persistedWorkspaces(forNewWindowIn ghostty: Ghostty.App) -> WorkspacesState<Ghostty.SurfaceView>? {
+        guard ghostty.config.usesWorkspaceWindow else { return nil }
+        return makeWorkspacesState(in: ghostty) {
+            WorkspacePersistence.shared.loadForNewWindow(enabled: $0)
+        }
+    }
+
+    static func persistedWorkspaces(forLaunchRecoveryIn ghostty: Ghostty.App) -> WorkspacesState<Ghostty.SurfaceView>? {
+        guard ghostty.config.usesWorkspaceWindow else { return nil }
+        return makeWorkspacesState(in: ghostty) {
+            WorkspacePersistence.shared.loadForRecovery(enabled: $0)
+        }
+    }
+
+    private static func makeWorkspacesState(
+        in ghostty: Ghostty.App,
+        load: (Bool) -> WorkspacePersistedState?
+    ) -> WorkspacesState<Ghostty.SurfaceView>? {
+        guard let app = ghostty.app else { return nil }
+
+        guard let persisted = load(ghostty.config.windowSaveState != "never") else { return nil }
+
+        let state = persisted.makeWorkspacesState { directory in
+            SplitTree(view: Ghostty.SurfaceView(
+                app,
+                baseConfig: WorkspaceSurfaceConfiguration.make(base: nil, directory: directory)))
+        }
+        Ghostty.logger.info("restoring workspaces from file: \(state.workspaces.count, privacy: .public) workspaces")
+        return state
+    }
+
+    private static func makeRequestedTab(
+        _ app: ghostty_app_t,
+        base: Ghostty.SurfaceConfiguration,
+        directory: URL
+    ) -> WorkspaceTab<Ghostty.SurfaceView> {
+        var config = base
+        if config.workingDirectory == nil {
+            config.workingDirectory = directory.path
+        }
+        let tree = SplitTree(view: Ghostty.SurfaceView(app, baseConfig: config))
+        guard let tab = WorkspaceTab(tree: tree) else {
+            preconditionFailure("a single surface tree is never empty")
+        }
+        return tab
+    }
+
+    private var persistenceEnabled: Bool {
+        ghostty.config.windowSaveState != "never"
+    }
+
+    private func persistedState() -> WorkspacePersistedState {
+        WorkspacePersistedState(store: store, directory: { $0.pwd })
+    }
+
+    private func schedulePersist() {
+        persistence.stateDidChange(persistedState(), from: self, enabled: persistenceEnabled)
+    }
+
+    func persistNow() {
+        recordFocusInSelectedTab()
+        persistence.flush(persistedState(), from: self, enabled: persistenceEnabled)
+    }
+
+    @objc private func applicationWillTerminate(_ notification: Notification) {
+        persistNow()
     }
 
     static func isWorkspaceSurface(_ surface: Ghostty.SurfaceView) -> Bool {
@@ -320,6 +405,8 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         if snapshot != overlaySnapshot {
             overlaySnapshot = snapshot
         }
+
+        schedulePersist()
     }
 
     private func observeJobActivity(_ surfaces: [Ghostty.SurfaceView], previousIDs: [UUID]) {
@@ -806,6 +893,8 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         for surface in store.allSurfaces where !surfaceTree.contains(surface) {
             surface.pendingClipboardConfirmation = nil
         }
+        persistNow()
+        persistence.unregister(self)
         super.windowWillClose(notification)
     }
 

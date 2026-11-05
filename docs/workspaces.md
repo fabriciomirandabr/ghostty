@@ -121,7 +121,16 @@ When a tab has splits, every pane gets a 24 pt header with the title and an x on
 
 ### Persistence
 
-Workspaces, tabs, names, folders, splits and the selection are restored after a restart. `window-save-state = never` disables the restore.
+Workspaces, tabs, names, folders and the selection are saved in two places:
+
+- The macOS window state, written when you quit. With `window-save-state = always` the window comes back with its splits and working directories on the next launch.
+- A JSON file at `~/Library/Application Support/com.fabriciomirandabr.ghostty-workspaces/workspaces.json`. It keeps the workspace list (name, folder, which one is selected) and, per tab, the name you gave it, the working directory of the focused terminal and the selected tab.
+
+One window is persisted: the primary workspaces window. A window becomes primary when it was restored with its workspaces (by macOS or from the file) or when it was opened while no other workspaces window existed; a window opened next to an existing one never becomes primary on its own, and a window restored by macOS from a state without workspaces never claims the role. A window restored by macOS claims the role only when it shares at least one workspace with the saved file as it was at launch (or when there is no readable file and it is the first), so a scratch window never takes the role from the window that owns the saved projects, and a restored window writes nothing until its state changes. If macOS restored windows but none of them owns the saved file, one extra window is opened from the file at launch so the saved projects are visible again and become the persisted ones. When the primary window closes, the role passes to the oldest remaining workspaces window that was allowed to claim it (restored with workspaces that match the file, or opened when no other workspaces window existed); a window opened next to another workspaces window or restored without workspaces never becomes primary by hand-off, so closing the primary window never lets a scratch window overwrite its projects. The new primary writes on its next change. Other windows never write or delete the file. Saves happen at most once per second after a change, and again when the primary window closes or the app quits; nothing is written when the state did not change, and a failed write is retried on the next change or at close.
+
+When a new window is requested and no workspaces window exists (at launch when macOS did not restore one, from the Dock icon, `Cmd+N`, a folder opened from Finder, the `new_window` action, Services, AppleScript or Shortcuts), the window is rebuilt from the file: each tab gets a fresh shell in its saved directory, falling back to the workspace folder and then to your home folder when a directory no longer exists. A requested folder or command opens as a new tab in `Default`. So closing the window with the red button and opening it again brings the projects back. A file written by a newer version of the app is left untouched until you change a workspace or tab (directory changes alone do not count).
+
+`window-save-state = never` disables both: nothing is saved, the file is deleted, and nothing is restored.
 
 Closing the window or quitting asks for confirmation, taking all workspaces into account.
 

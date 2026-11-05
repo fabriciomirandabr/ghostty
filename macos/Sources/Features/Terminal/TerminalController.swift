@@ -259,14 +259,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func make(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
-        withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
+        withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
+        restoringWorkspaces workspaces: WorkspacesState<Ghostty.SurfaceView>? = nil,
+        windowOrigin: WorkspaceWindowOrigin = .fresh
     ) -> TerminalController {
         let config = ghostty.config
         if config.usesWorkspaceWindow {
             return WorkspaceTerminalController(
                 ghostty,
                 withBaseConfig: baseConfig,
-                withSurfaceTree: tree)
+                withSurfaceTree: tree,
+                restoring: workspaces,
+                origin: windowOrigin)
         }
 
         return TerminalController(ghostty, withBaseConfig: baseConfig, withSurfaceTree: tree)
@@ -276,9 +280,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
-        withParent explicitParent: NSWindow? = nil
+        withParent explicitParent: NSWindow? = nil,
+        recoveredWorkspaces: WorkspacesState<Ghostty.SurfaceView>? = nil
     ) -> TerminalController {
-        let c = TerminalController.make(ghostty, withBaseConfig: baseConfig)
+        let c = TerminalController.make(
+            ghostty,
+            withBaseConfig: baseConfig,
+            restoringWorkspaces: recoveredWorkspaces
+                ?? WorkspaceTerminalController.persistedWorkspaces(forNewWindowIn: ghostty))
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.

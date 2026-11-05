@@ -177,6 +177,55 @@ struct TerminalRestorableTests {
     }
 
     @MainActor
+    @Test func workspacesSurviveTheWindowRestorationCoder() throws {
+        let store = WorkspaceFixtures.makeStore()
+        let docs = try store.addWorkspace(name: "Docs", directory: URL(fileURLWithPath: "/tmp/ws-docs"), makeTab: {
+            WorkspaceFixtures.makeTab(title: "writing", views: [MockView(), MockView()])
+        })
+        store.select(workspaceID: docs.id)
+        let tree = try #require(store.selectedTab?.tree)
+        let state = DummyTerminalRestorableState(.init(
+            focusedSurface: tree.first?.id.uuidString,
+            surfaceTree: tree,
+            effectiveFullscreenMode: nil,
+            tabColor: nil,
+            titleOverride: nil,
+            workspaces: store.makeState()))
+
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        state.encode(with: archiver)
+        archiver.finishEncoding()
+
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiver.encodedData)
+        unarchiver.requiresSecureCoding = true
+        defer { unarchiver.finishDecoding() }
+        #expect(unarchiver.decodeInteger(forKey: DummyTerminalRestorableState.versionKey) == TerminalRestorableState.version)
+
+        let restored = try #require(DummyTerminalRestorableState(coder: unarchiver))
+        let workspaces = try #require(restored.internalState.workspaces)
+        #expect(workspaces.selectedWorkspace == docs.id.uuidString)
+        #expect(workspaces.workspaces.map(\.name) == ["Default", "Docs"])
+        #expect(workspaces.workspaces[1].tabs[0].titleOverride == "writing")
+        #expect(workspaces.workspaces[1].tabs[0].surfaceTree.map(\.id) == tree.map(\.id))
+        #expect(restored.internalState.surfaceTree.isEmpty)
+        #expect(restored.internalState.restoredSurfaceTree.map(\.id) == tree.map(\.id))
+    }
+
+    @MainActor
+    @Test func coderWithoutSavedStateDecodesToNothing() throws {
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        archiver.encode("unrelated", forKey: "other")
+        archiver.finishEncoding()
+
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiver.encodedData)
+        unarchiver.requiresSecureCoding = true
+        defer { unarchiver.finishDecoding() }
+        #expect(unarchiver.decodeInteger(forKey: DummyQuickTerminalRestorableState.versionKey) == 0)
+        #expect(DummyQuickTerminalRestorableState(coder: unarchiver) == nil)
+        #expect(DummyTerminalRestorableState(coder: unarchiver) == nil)
+    }
+
+    @MainActor
     @Test func archiveWithoutWorkspacesKeepsSurfaceTree() throws {
         let views = [CountingView(), CountingView()]
         let tab = Self.makeCountingTab(views)
