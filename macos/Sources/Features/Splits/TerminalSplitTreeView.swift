@@ -98,7 +98,10 @@ private struct TerminalSplitLeaf: View {
     @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
 
     private var showsHeader: Bool {
-        SplitPaneHeader.isVisible(isSplit: isSplit, style: ghostty.config.macosTitlebarStyle)
+        SplitPaneHeader.isVisible(
+            isSplit: isSplit,
+            windowDecorations: ghostty.config.windowDecorations,
+            style: ghostty.config.macosTitlebarStyle)
     }
 
     var body: some View {

@@ -4,6 +4,8 @@ This fork adds workspaces to Ghostty on macOS: one window, one workspace per
 project folder, tabs as terminals, an activity badge and a grid of all
 workspaces. Read [docs/workspaces.md](docs/workspaces.md) or download a build
 from [Releases](https://github.com/fabriciomirandabr/ghostty/releases).
+The workspaces UI is on by default. The upstream default was `transparent`;
+set `macos-titlebar-style = transparent` to get the upstream look back.
 The upstream README follows unchanged.
 
 ---

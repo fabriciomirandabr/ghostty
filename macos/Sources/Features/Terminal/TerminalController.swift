@@ -262,7 +262,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
     ) -> TerminalController {
         let config = ghostty.config
-        if config.windowDecorations && config.macosTitlebarStyle == .workspaces {
+        if config.usesWorkspaceWindow {
             return WorkspaceTerminalController(
                 ghostty,
                 withBaseConfig: baseConfig,

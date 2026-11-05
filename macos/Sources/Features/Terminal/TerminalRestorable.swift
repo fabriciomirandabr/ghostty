@@ -160,8 +160,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // be.
         let c: TerminalController
         if let workspaces = state.workspaces,
-           appDelegate.ghostty.config.windowDecorations,
-           appDelegate.ghostty.config.macosTitlebarStyle == .workspaces {
+           appDelegate.ghostty.config.usesWorkspaceWindow {
             c = WorkspaceTerminalController(appDelegate.ghostty, restoring: workspaces)
         } else {
             c = TerminalController.make(

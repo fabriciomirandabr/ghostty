@@ -361,13 +361,19 @@ extension Ghostty {
         }
 
         var macosTitlebarStyle: MacOSTitlebarStyle {
-            let defaultValue = MacOSTitlebarStyle.transparent
+            let defaultValue = MacOSTitlebarStyle.default
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-titlebar-style"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
             guard let ptr = v else { return defaultValue }
             return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
+        var usesWorkspaceWindow: Bool {
+            WorkspaceWindowPolicy.usesWorkspaceWindow(
+                windowDecorations: windowDecorations,
+                style: macosTitlebarStyle)
         }
 
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
@@ -970,7 +976,7 @@ extension Ghostty.Config {
     }
 
     enum MacOSTitlebarStyle: String {
-        static let `default` = MacOSTitlebarStyle.transparent
+        static let `default` = MacOSTitlebarStyle.workspaces
         case native, transparent, tabs, hidden, workspaces
     }
 

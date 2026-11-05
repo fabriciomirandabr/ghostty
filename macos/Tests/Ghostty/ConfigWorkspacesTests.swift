@@ -8,14 +8,21 @@ struct ConfigWorkspacesTests {
         #expect(config.macosTitlebarStyle == .workspaces)
     }
 
-    @Test func titlebarStyleDefaultIsNotWorkspaces() throws {
+    @Test func titlebarStyleDefaultsToWorkspaces() throws {
         let config = try TemporaryConfig("")
-        #expect(config.macosTitlebarStyle != .workspaces)
+        #expect(config.macosTitlebarStyle == .workspaces)
+        #expect(Ghostty.Config.MacOSTitlebarStyle.default == .workspaces)
     }
 
-    @Test func otherTitlebarStylesStillParse() throws {
-        let config = try TemporaryConfig("macos-titlebar-style = tabs")
-        #expect(config.macosTitlebarStyle == .tabs)
+    @Test(arguments: [
+        ("native", Ghostty.Config.MacOSTitlebarStyle.native),
+        ("transparent", Ghostty.Config.MacOSTitlebarStyle.transparent),
+        ("tabs", Ghostty.Config.MacOSTitlebarStyle.tabs),
+        ("hidden", Ghostty.Config.MacOSTitlebarStyle.hidden),
+    ])
+    func otherTitlebarStylesStillParse(raw: String, expected: Ghostty.Config.MacOSTitlebarStyle) throws {
+        let config = try TemporaryConfig("macos-titlebar-style = \(raw)")
+        #expect(config.macosTitlebarStyle == expected)
     }
 
     @Test func workspaceDefaultDirectoryDefaultsToNil() throws {

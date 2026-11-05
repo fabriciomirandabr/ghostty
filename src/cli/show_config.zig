@@ -74,6 +74,7 @@ pub fn run(alloc: Allocator) !u8 {
 
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
+    if (opts.default) try config.applyWorkspaceKeybindDefaults();
 
     const configfmt: configpkg.FileFormatter = .{
         .alloc = alloc,

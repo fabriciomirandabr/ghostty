@@ -3466,14 +3466,26 @@ keybind: Keybinds = .{},
 ///   * `super+shift+]` - `next_workspace`
 ///   * `f2` - `prompt_tab_title`
 ///
-/// The default keybindings are not changed when `keybind = clear` is used.
+/// The default keybindings are not changed when `keybind = clear` is used, nor
+/// when `window-decoration = none`: the defaults are installed only when the
+/// style is "workspaces" and the window is decorated. Under any other style
+/// the stock bindings apply. In a window that is not a workspace window (the
+/// quick terminal) the workspace shortcuts do nothing. `super+k`, `super+j`,
+/// `super+g`, `super+o` and `super+alt+1` to `super+alt+9` are
+/// `performable`, so the key passes through to the program there, while
+/// `super+shift+w`, `super+shift+[` and `super+shift+]` are consumed like the
+/// stock bindings they replace. Performable bindings show no shortcut symbol
+/// in menus or in the command palette. `f2` renames the tab in workspace
+/// windows and in the quick terminal, so programs never receive it; rebind it
+/// with `keybind = f2=unbind` or another key.
+/// Rebind with `keybind =` if you need something else.
 ///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
+/// The default value is "workspaces" in this fork. The upstream default was
+/// "transparent", which is the only way to get the upstream look back ("tabs",
+/// "native" and "hidden" are other upstream styles).
 ///
 /// Changing this option at runtime only applies to new windows.
-@"macos-titlebar-style": MacTitlebarStyle = .transparent,
+@"macos-titlebar-style": MacTitlebarStyle = .workspaces,
 
 /// The directory where new terminals of the default workspace start when
 /// `macos-titlebar-style = workspaces`. Other workspaces start in the folder
@@ -5018,10 +5030,15 @@ pub fn finalize(self: *Config) !void {
 
     try self.finalizeWorkspaceDefaultDirectory(alloc);
 
+    try self.applyWorkspaceKeybindDefaults();
+}
+
+pub fn applyWorkspaceKeybindDefaults(self: *Config) !void {
     if ((comptime builtin.target.os.tag.isDarwin()) and
-        self.@"macos-titlebar-style" == .workspaces)
+        self.@"macos-titlebar-style" == .workspaces and
+        self.@"window-decoration" != .none)
     {
-        try self.keybind.applyWorkspaceDefaults(alloc);
+        try self.keybind.applyWorkspaceDefaults(self._arena.?.allocator());
     }
 }
 
@@ -6767,6 +6784,7 @@ pub const Keybinds = struct {
         trigger: inputpkg.Binding.Trigger,
         action: inputpkg.Binding.Action,
         replaces: ?inputpkg.Binding.Action = null,
+        flags: inputpkg.Binding.Flags = .{ .performable = true },
     };
 
     fn workspaceDefaults() [workspace_default_count]WorkspaceDefault {
@@ -6778,16 +6796,19 @@ pub const Keybinds = struct {
                 .trigger = .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
                 .action = .{ .new_workspace = {} },
                 .replaces = .{ .navigate_search = .next },
+                .flags = .{ .performable = true },
             },
             .{
                 .trigger = .{ .key = .{ .unicode = 'k' }, .mods = .{ .super = true } },
                 .action = .{ .toggle_workspace_switcher = {} },
                 .replaces = .{ .clear_screen = {} },
+                .flags = .{ .performable = true },
             },
             .{
                 .trigger = .{ .key = .{ .unicode = 'j' }, .mods = .{ .super = true } },
                 .action = .{ .toggle_activity_popover = {} },
                 .replaces = .{ .scroll_to_selection = {} },
+                .flags = .{ .performable = true },
             },
             .{
                 .trigger = .{ .key = .{ .unicode = 'o' }, .mods = .{ .super = true } },
@@ -6797,16 +6818,19 @@ pub const Keybinds = struct {
                 .trigger = .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .shift = true } },
                 .action = .{ .close_workspace = {} },
                 .replaces = .{ .close_window = {} },
+                .flags = .{},
             },
             .{
                 .trigger = .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .shift = true } },
                 .action = .{ .previous_workspace = {} },
                 .replaces = .{ .previous_tab = {} },
+                .flags = .{},
             },
             .{
                 .trigger = .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .shift = true } },
                 .action = .{ .next_workspace = {} },
                 .replaces = .{ .next_tab = {} },
+                .flags = .{},
             },
             .{
                 .trigger = .{ .key = .{ .physical = .f2 } },
@@ -6868,7 +6892,7 @@ pub const Keybinds = struct {
                 }
             }
 
-            try self.set.put(alloc, item.trigger, item.action);
+            try self.set.putFlags(alloc, item.trigger, item.action, item.flags);
         }
     }
 
@@ -11174,8 +11198,126 @@ test "workspaces: style sets the default keybinds" {
     }).?;
     try testing.expectEqual(@as(u8, 9), physical_goto.goto_workspace.index);
 
-    const by_action = cfg.keybind.set.getTrigger(.{ .new_workspace = {} }).?;
-    try testing.expect(by_action.equal(workspaces_super_g));
+    try testing.expect(cfg.keybind.set.getTrigger(.{ .new_workspace = {} }) == null);
+    try testing.expect(cfg.keybind.set.getTrigger(.{ .toggle_workspace_overview = {} }) == null);
+}
+
+test "workspaces: fresh config defaults to the workspaces titlebar style and keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{});
+    defer cfg.deinit();
+
+    try testing.expectEqual(MacTitlebarStyle.workspaces, cfg.@"macos-titlebar-style");
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .new_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .toggle_workspace_switcher);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_w).? == .close_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_f2).? == .prompt_tab_title);
+}
+
+fn workspacesTestFlags(cfg: *const Config, trigger: inputpkg.Binding.Trigger) ?inputpkg.Binding.Flags {
+    const entry = cfg.keybind.set.get(trigger) orelse return null;
+    return switch (entry.value_ptr.*) {
+        .leaf => |leaf| leaf.flags,
+        .leader, .leaf_chained => null,
+    };
+}
+
+test "workspaces: defaults are performable where the stock bind is, so keys pass through" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var stock = try workspacesTestConfig(testing.allocator, &.{"--macos-titlebar-style=transparent"});
+    defer stock.deinit();
+    var cfg = try workspacesTestConfig(testing.allocator, &.{});
+    defer cfg.deinit();
+
+    const replaced = [_]inputpkg.Binding.Trigger{
+        workspaces_super_k,
+        workspaces_super_j,
+        workspaces_super_g,
+        workspaces_super_shift_w,
+        workspaces_super_shift_open,
+        workspaces_super_shift_close,
+    };
+    for (replaced) |trigger| {
+        const want = workspacesTestFlags(&stock, trigger).?;
+        const got = workspacesTestFlags(&cfg, trigger).?;
+        try testing.expectEqual(want.performable, got.performable);
+    }
+
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_super_k).?.performable);
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_super_j).?.performable);
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_super_g).?.performable);
+    try testing.expect(!workspacesTestFlags(&cfg, workspaces_super_shift_w).?.performable);
+
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_super_o).?.performable);
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_f2).?.performable);
+    try testing.expect(workspacesTestFlags(&cfg, workspaces_super_alt_3).?.performable);
+    try testing.expect(workspacesTestFlags(&cfg, .{
+        .key = .{ .physical = .digit_9 },
+        .mods = .{ .super = true, .alt = true },
+    }).?.performable);
+    try testing.expect(!workspacesTestFlags(&cfg, workspaces_super_shift_open).?.performable);
+    try testing.expect(!workspacesTestFlags(&cfg, workspaces_super_shift_close).?.performable);
+}
+
+test "workspaces: default config applies only the keybind step, not full finalize" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .navigate_search);
+
+    try cfg.applyWorkspaceKeybindDefaults();
+    try cfg.applyWorkspaceKeybindDefaults();
+
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .new_workspace);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .toggle_workspace_switcher);
+    try testing.expect(cfg.command == null);
+    try testing.expect(cfg.@"auto-update-channel" == null);
+}
+
+test "workspaces: window decoration none keeps the stock keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--window-decoration=none"});
+    defer cfg.deinit();
+
+    try testing.expectEqual(MacTitlebarStyle.workspaces, cfg.@"macos-titlebar-style");
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .clear_screen);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_j).? == .scroll_to_selection);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .navigate_search);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_w).? == .close_window);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_open).? == .previous_tab);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_shift_close).? == .next_tab);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_f2) == null);
+}
+
+test "workspaces: window decoration client and server keep the workspace keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    for ([_][]const u8{ "--window-decoration=client", "--window-decoration=server" }) |arg| {
+        var cfg = try workspacesTestConfig(testing.allocator, &.{arg});
+        defer cfg.deinit();
+        try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .new_workspace);
+    }
+}
+
+test "workspaces: titlebar style tabs opts out of the workspace keybinds" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+    const testing = std.testing;
+
+    var cfg = try workspacesTestConfig(testing.allocator, &.{"--macos-titlebar-style=tabs"});
+    defer cfg.deinit();
+
+    try testing.expectEqual(MacTitlebarStyle.tabs, cfg.@"macos-titlebar-style");
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_k).? == .clear_screen);
+    try testing.expect(workspacesTestAction(&cfg, workspaces_super_g).? == .navigate_search);
 }
 
 test "workspaces: other styles keep the factory keybinds" {

@@ -1276,7 +1276,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
-        menuWorkspace?.isHidden = config.macosTitlebarStyle != .workspaces
+        menuWorkspace?.isHidden = !config.usesWorkspaceWindow
         syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
         syncMenuShortcut(config, action: "close_workspace", menuItem: self.menuCloseWorkspace)
         syncMenuShortcut(config, action: "toggle_workspace_switcher", menuItem: self.menuSwitchWorkspace)

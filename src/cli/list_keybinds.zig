@@ -64,6 +64,7 @@ pub fn run(alloc: Allocator) !u8 {
 
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
+    if (opts.default) try config.applyWorkspaceKeybindDefaults();
 
     var buffer: [1024]u8 = undefined;
     const stdout: std.Io.File = .stdout();

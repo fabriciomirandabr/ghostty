@@ -26,15 +26,15 @@ xattr -d com.apple.quarantine "/Applications/Ghostty Workspaces.app"
 
 The app installs beside stock Ghostty. It has its own bundle id `com.fabriciomirandabr.ghostty-workspaces` and shares `~/.config/ghostty/config` with stock Ghostty.
 
-## Enable
+## Opt out
 
-Add this line to `~/.config/ghostty/config`:
+The workspaces UI is on by default, with no config line needed. To go back to the upstream look (the upstream default was `transparent`), set the style in `~/.config/ghostty/config`:
 
 ```
-macos-titlebar-style = workspaces
+macos-titlebar-style = transparent
 ```
 
-The new title bar style applies to new windows. Existing windows keep the style they were opened with, and the other styles (`native`, `transparent`, `tabs`, `hidden`) keep upstream behavior.
+The accepted values are `workspaces` (the default), `tabs`, `native`, `transparent` and `hidden`. The upstream default was `transparent`. The workspace keybind defaults and the workspaces window are also off when `window-decoration = none`. A change applies to new windows. Existing windows keep the style they were opened with, and the other styles keep upstream behavior.
 
 To choose where the terminals of the `Default` workspace start, set:
 
@@ -127,7 +127,9 @@ Closing the window or quitting asks for confirmation, taking all workspaces into
 
 ## Keyboard shortcuts
 
-The defaults below apply only with `macos-titlebar-style = workspaces`. An explicit `keybind` of yours always wins. Each default replaces one stock binding, and only that one: `Cmd+K` (`clear_screen`), `Cmd+J` (`scroll_to_selection`), `Cmd+G` (`navigate_search:next`), `Cmd+Shift+W` (`close_window`), `Cmd+Shift+[` (`previous_tab`), `Cmd+Shift+]` (`next_tab`). The defaults are not applied when `keybind = clear` is used. They are defined in `src/config/Config.zig`.
+The defaults below are installed only when `macos-titlebar-style = workspaces` (the default) and the window is decorated (`window-decoration` is not `none`). Under any other style the stock bindings apply. An explicit `keybind` of yours always wins. Each default replaces one stock binding, and only that one: `Cmd+K` (`clear_screen`), `Cmd+J` (`scroll_to_selection`), `Cmd+G` (`navigate_search:next`), `Cmd+Shift+W` (`close_window`), `Cmd+Shift+[` (`previous_tab`), `Cmd+Shift+]` (`next_tab`). The defaults are not applied when `keybind = clear` is used.
+
+In a window that is not a workspace window (the quick terminal) the workspace shortcuts do nothing. `Cmd+K`, `Cmd+J`, `Cmd+G`, `Cmd+O` and `Opt+Cmd+1` to `9` are `performable`, so the key passes to the program there. `Cmd+Shift+W`, `Cmd+Shift+[` and `Cmd+Shift+]` are consumed like the stock bindings they replace. Performable bindings show no shortcut symbol in menus or in the command palette. The workspace entries are hidden from the command palette outside workspace windows. `F2` renames the tab in workspace windows and in the quick terminal, so programs never receive it; rebind it with `keybind = f2=unbind` or bind another key to `prompt_tab_title`. Rebind with `keybind =` if you need something else. The defaults are defined in `src/config/Config.zig`.
 
 | Shortcut | Action |
 | --- | --- |
@@ -234,7 +236,7 @@ SwiftPM can hang while resolving Sparkle if the login keychain is locked. Unlock
 ## Differences from upstream
 
 - `macos/Sources/Features/Workspaces/` holds the model, title bar, overlays, activity tracking and notifier.
-- New `macos-titlebar-style` value `workspaces`.
+- New `macos-titlebar-style` value `workspaces`, which is the default in this fork (upstream: `transparent`).
 - Handler and app plumbing for the existing OSC 7501 parser (`src/terminal/osc/parsers/program_status.zig`): `src/termio/stream_handler.zig`, the `program_status` action and the macOS activity tracking.
 - New `command_started` action from `OSC 133;C` into the app.
 - Eight new keybind actions (`new_workspace`, `close_workspace`, `goto_workspace`, `previous_workspace`, `next_workspace`, `toggle_workspace_overview`, `toggle_workspace_switcher`, `toggle_activity_popover`), all with command palette entries except `goto_workspace`.

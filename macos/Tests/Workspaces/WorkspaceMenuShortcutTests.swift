@@ -12,24 +12,25 @@ struct WorkspaceMenuShortcutTests {
         return item
     }
 
-    @Test func newWorkspaceUsesCommandGUnderWorkspacesStyle() throws {
-        let config = try TemporaryConfig("macos-titlebar-style = workspaces")
+    @Test(arguments: ["new_workspace", "toggle_workspace_switcher", "toggle_workspace_overview"])
+    func performableDefaultsHaveNoMenuShortcut(action: String) throws {
+        let config = try TemporaryConfig("")
+        let item = sync(config, action: action)
+
+        #expect(item.keyEquivalent.isEmpty)
+        #expect(item.keyEquivalentModifierMask.isEmpty)
+    }
+
+    @Test func newWorkspaceHasNoShortcutWithoutWindowDecorations() throws {
+        let config = try TemporaryConfig("window-decoration = none")
         let item = sync(config, action: "new_workspace")
 
-        #expect(item.keyEquivalent == "g")
-        #expect(item.keyEquivalentModifierMask == .command)
+        #expect(item.keyEquivalent.isEmpty)
+        #expect(item.keyEquivalentModifierMask.isEmpty)
     }
 
-    @Test func switcherUsesCommandKUnderWorkspacesStyle() throws {
-        let config = try TemporaryConfig("macos-titlebar-style = workspaces")
-        let item = sync(config, action: "toggle_workspace_switcher")
-
-        #expect(item.keyEquivalent == "k")
-        #expect(item.keyEquivalentModifierMask == .command)
-    }
-
-    @Test func newWorkspaceHasNoShortcutWithoutTheStyle() throws {
-        let config = try TemporaryConfig("")
+    @Test func newWorkspaceHasNoShortcutWhenOptedOutOfTheStyle() throws {
+        let config = try TemporaryConfig("macos-titlebar-style = tabs")
         let item = sync(config, action: "new_workspace")
 
         #expect(item.keyEquivalent.isEmpty)

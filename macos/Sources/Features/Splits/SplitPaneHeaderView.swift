@@ -42,8 +42,14 @@ struct SplitPaneHeaderPalette: Equatable {
 }
 
 enum SplitPaneHeader {
-    static func isVisible(isSplit: Bool, style: Ghostty.Config.MacOSTitlebarStyle) -> Bool {
-        isSplit && style == .workspaces
+    static func isVisible(
+        isSplit: Bool,
+        windowDecorations: Bool,
+        style: Ghostty.Config.MacOSTitlebarStyle
+    ) -> Bool {
+        isSplit && WorkspaceWindowPolicy.usesWorkspaceWindow(
+            windowDecorations: windowDecorations,
+            style: style)
     }
 }
 

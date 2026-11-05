@@ -34,6 +34,13 @@ protocol QuitConfirmable {
 extension Ghostty.SurfaceView: QuitConfirmable {}
 
 enum WorkspaceWindowPolicy {
+    static func usesWorkspaceWindow(
+        windowDecorations: Bool,
+        style: Ghostty.Config.MacOSTitlebarStyle
+    ) -> Bool {
+        windowDecorations && style == .workspaces
+    }
+
     @MainActor
     static func canCloseWithoutConfirmation<ViewType: NSView & Codable & Identifiable & QuitConfirmable>(
         _ store: WorkspaceStore<ViewType>

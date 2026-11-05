@@ -9,6 +9,25 @@ import Testing
 import SwiftUI
 @testable import Ghostty
 
+struct CommandPaletteWorkspaceEntriesTests {
+    @Test(arguments: [
+        "new_workspace", "close_workspace", "goto_workspace", "previous_workspace",
+        "next_workspace", "toggle_workspace_overview", "toggle_workspace_switcher",
+        "toggle_activity_popover",
+    ])
+    func workspaceEntriesAreOnlyVisibleInWorkspaceWindows(actionKey: String) {
+        #expect(Ghostty.Command.isVisibleInPalette(actionKey: actionKey, inWorkspaceWindow: true))
+        #expect(!Ghostty.Command.isVisibleInPalette(actionKey: actionKey, inWorkspaceWindow: false))
+    }
+
+    @Test func otherEntriesAreAlwaysVisible() {
+        for key in ["new_tab", "prompt_tab_title", "clear_screen", "new_window"] {
+            #expect(Ghostty.Command.isVisibleInPalette(actionKey: key, inWorkspaceWindow: false))
+            #expect(Ghostty.Command.isVisibleInPalette(actionKey: key, inWorkspaceWindow: true))
+        }
+    }
+}
+
 struct CommandPaletteFilterTests {
     private func option(
         title: String,

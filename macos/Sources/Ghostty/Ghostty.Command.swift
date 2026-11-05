@@ -21,6 +21,21 @@ extension Ghostty {
             !Self.unsupportedActionKeys.contains(actionKey)
         }
 
+        static let workspaceActionKeys: Set<String> = [
+            "new_workspace",
+            "close_workspace",
+            "goto_workspace",
+            "previous_workspace",
+            "next_workspace",
+            "toggle_workspace_overview",
+            "toggle_workspace_switcher",
+            "toggle_activity_popover",
+        ]
+
+        static func isVisibleInPalette(actionKey: String, inWorkspaceWindow: Bool) -> Bool {
+            inWorkspaceWindow || !workspaceActionKeys.contains(actionKey)
+        }
+
         /// Unsupported action keys, because they either don't make sense in the context of our
         /// target platform or they just aren't implemented yet.
         static let unsupportedActionKeys: [String] = [

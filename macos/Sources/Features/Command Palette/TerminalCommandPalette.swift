@@ -127,8 +127,14 @@ struct TerminalCommandPaletteView: View {
     /// Custom commands from the command-palette-entry configuration.
     private var terminalOptions: [CommandOption] {
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
+        let inWorkspaceWindow = WorkspaceTerminalController.isWorkspaceSurface(surfaceView)
         return appDelegate.ghostty.config.commandPaletteEntries
             .filter(\.isSupported)
+            .filter {
+                Ghostty.Command.isVisibleInPalette(
+                    actionKey: $0.actionKey,
+                    inWorkspaceWindow: inWorkspaceWindow)
+            }
             .map { c in
                 let symbols = appDelegate.ghostty.config.keyboardShortcut(for: c.action)?.keyList
                 return CommandOption(
