@@ -536,6 +536,15 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         scheduleChromeRefresh()
     }
 
+    override func windowDidResize(_ notification: Notification) {
+        super.windowDidResize(notification)
+        (window as? WorkspacesTerminalWindow)?.alignTrafficLights()
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        (window as? WorkspacesTerminalWindow)?.alignTrafficLights()
+    }
+
     override func promptTabTitle() {
         titlebarViewModel.beginRenamingSelectedTab()
     }

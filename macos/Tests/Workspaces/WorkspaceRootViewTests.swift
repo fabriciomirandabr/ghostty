@@ -302,6 +302,7 @@ struct WorkspaceRootViewWindowTests {
         container.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         container.layoutSubtreeIfNeeded()
+        window.alignTrafficLights()
         return Fixture(window: window, container: container, metrics: metrics)
     }
 
@@ -386,7 +387,7 @@ struct WorkspaceRootViewWindowTests {
     }
 
     private func pngData(of fixture: Fixture, cropHeight: CGFloat?) throws -> Data {
-        fixture.window.update()
+        fixture.window.alignTrafficLights()
         let frameView = try #require(fixture.window.contentView?.superview)
         let bounds = frameView.bounds
         let rep = try #require(NSBitmapImageRep(

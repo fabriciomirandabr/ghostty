@@ -3,15 +3,14 @@ import AppKit
 class WorkspacesTerminalWindow: TerminalWindow {
     override var supportsUpdateAccessory: Bool { false }
 
-    private var trafficLightObservers: [NSObjectProtocol] = []
-
-    deinit {
-        trafficLightObservers.forEach { NotificationCenter.default.removeObserver($0) }
-    }
+    private var isAligningTrafficLights = false
 
     func alignTrafficLights() {
-        guard !styleMask.contains(.fullScreen),
-              let container = standardWindowButton(.closeButton)?.superview?.superview,
+        guard !isAligningTrafficLights, !styleMask.contains(.fullScreen) else { return }
+        isAligningTrafficLights = true
+        defer { isAligningTrafficLights = false }
+
+        guard let container = standardWindowButton(.closeButton)?.superview?.superview,
               let parent = container.superview
         else { return }
 
@@ -23,7 +22,6 @@ class WorkspacesTerminalWindow: TerminalWindow {
             height: height)
         if container.frame != target {
             container.frame = target
-            container.layoutSubtreeIfNeeded()
         }
 
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -31,30 +29,6 @@ class WorkspacesTerminalWindow: TerminalWindow {
             let originY = titlebar.bounds.height - height / 2 - button.frame.height / 2
             if button.frame.origin.y != originY {
                 button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: originY))
-            }
-        }
-    }
-
-    private func observeTrafficLightChanges() {
-        guard trafficLightObservers.isEmpty else { return }
-        var sources: [(Notification.Name, AnyObject)] = [
-            (NSWindow.didUpdateNotification, self),
-            (NSWindow.didResizeNotification, self),
-            (NSWindow.didExitFullScreenNotification, self)
-        ]
-        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            guard let button = standardWindowButton(type) else { continue }
-            button.postsFrameChangedNotifications = true
-            sources.append((NSView.frameDidChangeNotification, button))
-        }
-        if let container = standardWindowButton(.closeButton)?.superview?.superview {
-            container.postsFrameChangedNotifications = true
-            sources.append((NSView.frameDidChangeNotification, container))
-        }
-
-        trafficLightObservers = sources.map { name, object in
-            NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.alignTrafficLights() }
             }
         }
     }
@@ -80,7 +54,6 @@ class WorkspacesTerminalWindow: TerminalWindow {
             scrollPocket.isHidden = true
         }
 
-        observeTrafficLightChanges()
         alignTrafficLights()
     }
 

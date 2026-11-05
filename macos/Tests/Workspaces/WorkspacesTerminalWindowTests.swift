@@ -56,7 +56,7 @@ struct WorkspacesTerminalWindowTests {
         window.contentView = NSView()
         window.layoutIfNeeded()
         window.displayIfNeeded()
-        window.update()
+        window.alignTrafficLights()
 
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             let button = try #require(window.standardWindowButton(type))
