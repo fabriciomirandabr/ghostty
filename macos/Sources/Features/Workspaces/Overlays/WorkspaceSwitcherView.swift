@@ -19,7 +19,7 @@ enum WorkspaceSwitcherFilter {
                 name: $0.name,
                 folder: WorkspaceFolderLabel.abbreviated($0.directory, home: home),
                 state: $0.state,
-                runningCount: $0.runningTabCount
+                runningCount: $0.runningPaneCount
             )
         }
     }

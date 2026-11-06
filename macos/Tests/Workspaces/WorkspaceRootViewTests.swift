@@ -98,7 +98,7 @@ private struct SplitPanesPreview: View {
 
     private func pane(title: String, isActive: Bool, lines: [String]) -> some View {
         VStack(spacing: 0) {
-            SplitPaneHeaderView(title: title, isActive: isActive, onClose: {})
+            SplitPaneHeaderView(title: title, state: .idle, isActive: isActive, onClose: {})
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(lines.indices, id: \.self) { index in
                     Text(lines[index])
@@ -234,10 +234,10 @@ struct WorkspaceRootViewWindowTests {
                 state: $0.state, runningCount: $0.running)
         }
         let tabs = [
-            WorkspaceTitlebarTab(id: UUID(), title: "shell", state: .idle),
-            WorkspaceTitlebarTab(id: UUID(), title: "tests", state: .running),
-            WorkspaceTitlebarTab(id: UUID(), title: "server", state: .needsAttention),
-            WorkspaceTitlebarTab(id: UUID(), title: "build", state: .done)
+            WorkspaceTitlebarTab(id: UUID(), title: "shell", state: .idle, runningCount: 0),
+            WorkspaceTitlebarTab(id: UUID(), title: "tests", state: .running, runningCount: 1),
+            WorkspaceTitlebarTab(id: UUID(), title: "server", state: .needsAttention, runningCount: 0),
+            WorkspaceTitlebarTab(id: UUID(), title: "build", state: .done, runningCount: 0)
         ]
         model.apply(WorkspaceTitlebarSnapshot(
             workspaces: workspaces,

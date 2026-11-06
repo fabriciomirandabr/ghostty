@@ -2,10 +2,18 @@ import AppKit
 import Foundation
 @testable import Ghostty
 
+struct PaneSpec {
+    var title: String
+    var state: SurfaceActivityState = .idle
+    var pwd: String?
+    var command: String?
+}
+
 struct TabSpec {
     var title: String
     var state: SurfaceActivityState = .idle
     var command: String?
+    var panes: [PaneSpec] = []
 }
 
 enum OverlayFixtures {
@@ -19,14 +27,35 @@ enum OverlayFixtures {
         tabs: [TabSpec] = [TabSpec(title: "shell")]
     ) -> WorkspaceSummary {
         let id = UUID()
-        let summaries = tabs.map {
-            WorkspaceTabSummary(
+        let summaries = tabs.map { spec -> WorkspaceTabSummary in
+            let paneSpecs = spec.panes.isEmpty
+                ? [PaneSpec(title: spec.title, state: spec.state, command: spec.command)]
+                : spec.panes
+            let panes = paneSpecs.map {
+                WorkspacePaneSummary(
+                    id: UUID(),
+                    title: WorkspaceTabTitle.resolve(title: $0.title, pwd: $0.pwd),
+                    label: WorkspacePaneLabel.make(
+                        tabTitle: spec.title,
+                        titleOverride: nil,
+                        paneTitle: $0.title,
+                        panePwd: $0.pwd,
+                        paneCount: paneSpecs.count),
+                    state: $0.state,
+                    pwd: $0.pwd,
+                    lastCommand: $0.command
+                )
+            }
+            let tabState = paneSpecs.map(\.state).max() ?? .idle
+            return WorkspaceTabSummary(
                 id: UUID(),
                 workspaceID: id,
-                title: $0.title,
-                state: $0.state,
-                lastCommand: $0.command,
-                busiestSurfaceID: UUID()
+                title: spec.title,
+                state: tabState,
+                lastCommand: spec.panes.isEmpty
+                    ? spec.command
+                    : spec.panes.first { $0.state == tabState }?.command,
+                panes: panes
             )
         }
         return WorkspaceSummary(

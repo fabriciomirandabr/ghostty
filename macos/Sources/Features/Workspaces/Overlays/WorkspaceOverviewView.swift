@@ -157,7 +157,7 @@ struct WorkspaceOverviewView: View {
                let confirmation = CloseWorkspaceConfirmation.resolve(
                    workspaceID: workspace.id,
                    in: snapshot,
-                   foregroundProcessTabs: state.foregroundProcessTabs(workspace.id)) {
+                   foregroundProcessSurfaces: state.foregroundProcessSurfaces(workspace.id)) {
                 CloseWorkspaceConfirmationView(
                     confirmation: confirmation,
                     onCancel: actions.cancelClose,

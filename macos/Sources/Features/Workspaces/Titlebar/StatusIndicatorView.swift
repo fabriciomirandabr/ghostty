@@ -90,7 +90,7 @@ struct StatusIndicatorView: View {
         runningCount: Int
     ) -> String? {
         switch context {
-        case .tab: nil
+        case .tab: state == .running && runningCount >= 2 ? "\(runningCount)" : nil
         case .workspace: (state == .running || state == .needsAttention) && runningCount > 0 ? "\(runningCount)" : nil
         }
     }

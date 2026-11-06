@@ -14,9 +14,13 @@ enum WorkspaceActivityAggregator {
         tabs.map(tabState).max() ?? .idle
     }
 
+    static func runningPaneCount(_ surfaces: [SurfaceActivityState]) -> Int {
+        surfaces.filter { $0 == .running }.count
+    }
+
     static func summary(_ tabs: [[SurfaceActivityState]]) -> Summary {
         Summary(
-            runningCount: tabs.filter { $0.contains(.running) }.count,
+            runningCount: tabs.map(runningPaneCount).reduce(0, +),
             needsAttention: tabs.contains { $0.contains(.needsAttention) }
         )
     }

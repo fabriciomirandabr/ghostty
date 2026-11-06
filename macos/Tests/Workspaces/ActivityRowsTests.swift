@@ -19,16 +19,148 @@ struct ActivityRowsTests {
         ])
     }
 
-    @Test func orderedByPriorityWithLastCommand() {
-        let rows = ActivityRows.make(from: snapshot())
+    private func splitSnapshot() -> WorkspaceOverlaySnapshot {
+        OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("Default", isDefault: true),
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [
+                    PaneSpec(title: "claude", state: .running, pwd: "\(OverlayFixtures.home)/code/api", command: "claude"),
+                    PaneSpec(title: "pnpm dev", state: .running, pwd: "\(OverlayFixtures.home)/code/api/web", command: "pnpm dev"),
+                ]),
+            ]),
+            OverlayFixtures.workspace("web", tabs: [TabSpec(title: "tests", state: .running)]),
+        ])
+    }
+
+    private func rows(_ snapshot: WorkspaceOverlaySnapshot) -> [ActivityRow] {
+        ActivityRows.sections(from: snapshot, home: OverlayFixtures.home).flatMap(\.rows)
+    }
+
+    @Test func singlePaneTabsKeepOneRowWithoutHeader() {
+        let sections = ActivityRows.sections(from: snapshot(), home: OverlayFixtures.home)
+        #expect(sections.allSatisfy { $0.header == nil && $0.rows.count == 1 })
+        let rows = sections.flatMap(\.rows)
         #expect(rows.map(\.title) == ["agent", "dev", "agent", "tests"])
         #expect(rows.map(\.state) == [.needsAttention, .running, .running, .done])
         #expect(rows.map(\.subtitle) == ["api · claude", "api · pnpm dev", "web", "web · pnpm test"])
     }
 
-    @Test func idleTabsAreExcluded() {
-        let rows = ActivityRows.make(from: snapshot())
-        #expect(!rows.contains { $0.title == "logs" || $0.title == "shell" })
+    @Test func splitTabGetsHeaderAndOnePaneRowEach() throws {
+        let snap = splitSnapshot()
+        let sections = ActivityRows.sections(from: snap, home: OverlayFixtures.home)
+        let split = try #require(sections.first { $0.header != nil })
+        #expect(sections.count == 2)
+        #expect(split.header == "agent · api")
+        #expect(split.rows.map(\.title) == ["claude", "pnpm dev"])
+        let panes = try #require(snap.workspaces[1].tabs.first?.panes)
+        #expect(split.rows.map(\.surfaceID) == panes.map(\.id))
+    }
+
+    @Test func idlePanesOfASplitTabAreOmitted() throws {
+        let snap = OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [
+                    PaneSpec(title: "claude", state: .running),
+                    PaneSpec(title: "shell"),
+                ]),
+            ]),
+        ])
+        let sections = ActivityRows.sections(from: snap, home: OverlayFixtures.home)
+        #expect(sections.count == 1)
+        #expect(sections[0].header == "agent · api")
+        #expect(sections[0].rows.map(\.title) == ["claude"])
+    }
+
+    @Test func splitTabWithAllPanesIdleIsOmitted() {
+        let snap = OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [PaneSpec(title: "a"), PaneSpec(title: "b")]),
+            ]),
+        ])
+        #expect(ActivityRows.sections(from: snap, home: OverlayFixtures.home).isEmpty)
+    }
+
+    @Test func paneRowSubtitleShowsFolderAndCommand() {
+        let snap = OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [
+                    PaneSpec(title: "claude", state: .running, pwd: "\(OverlayFixtures.home)/code/api", command: "claude"),
+                    PaneSpec(title: "serve", state: .running, pwd: "\(OverlayFixtures.home)/code/api/web"),
+                    PaneSpec(title: "bare", state: .running, command: "make"),
+                    PaneSpec(title: "empty", state: .running),
+                ]),
+            ]),
+        ])
+        #expect(rows(snap).map(\.subtitle) == ["~/code/api · claude", "~/code/api/web", "make", ""])
+    }
+
+    @Test func sectionsAndRowsSortedByPriority() throws {
+        let snap = OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [
+                    PaneSpec(title: "first", state: .running),
+                    PaneSpec(title: "second", state: .done),
+                    PaneSpec(title: "third", state: .running),
+                ]),
+                TabSpec(title: "single", state: .running),
+            ]),
+            OverlayFixtures.workspace("web", tabs: [
+                TabSpec(title: "pair", panes: [
+                    PaneSpec(title: "left", state: .running),
+                    PaneSpec(title: "right", state: .needsAttention),
+                ]),
+            ]),
+        ])
+        let sections = ActivityRows.sections(from: snap, home: OverlayFixtures.home)
+        #expect(sections.map(\.id) == [
+            snap.workspaces[1].tabs[0].id,
+            snap.workspaces[0].tabs[0].id,
+            snap.workspaces[0].tabs[1].id,
+        ])
+        #expect(sections[0].rows.map(\.title) == ["right", "left"])
+        #expect(sections[1].rows.map(\.title) == ["first", "third", "second"])
+    }
+
+    @Test func rowsPointAtTheirPane() throws {
+        let snap = splitSnapshot()
+        let all = rows(snap)
+        #expect(Set(all.map(\.surfaceID)).count == all.count)
+        for row in all {
+            let workspace = try #require(snap.workspace(id: row.workspaceID))
+            let tab = try #require(workspace.tabs.first { $0.id == row.tabID })
+            #expect(tab.panes.contains { $0.id == row.surfaceID })
+        }
+    }
+
+    @Test func samePaneTitlesStayDistinctRows() {
+        let snap = OverlayFixtures.snapshot([
+            OverlayFixtures.workspace("api", tabs: [
+                TabSpec(title: "agent", panes: [
+                    PaneSpec(title: "claude", state: .running),
+                    PaneSpec(title: "claude", state: .running),
+                ]),
+            ]),
+        ])
+        let all = rows(snap)
+        #expect(all.count == 2)
+        #expect(Set(all.map(\.id)).count == 2)
+    }
+
+    @Test func selectingARowSendsItsPaneToTheFocusPath() throws {
+        let snap = splitSnapshot()
+        let second = try #require(rows(snap).first { $0.title == "pnpm dev" })
+        var requests: [(UUID, UUID, UUID?)] = []
+        let actions = WorkspaceOverlayActions(
+            selectWorkspace: { _ in },
+            selectTab: { requests.append(($0, $1, $2)) },
+            closeWorkspace: { _ in },
+            createWorkspace: { _, _ in nil }
+        )
+        actions.selectTab(second.workspaceID, second.tabID, second.surfaceID)
+        #expect(requests.count == 1)
+        #expect(requests[0].0 == snap.workspaces[1].id)
+        #expect(requests[0].1 == snap.workspaces[1].tabs[0].id)
+        #expect(requests[0].2 == snap.workspaces[1].tabs[0].panes[1].id)
     }
 
     @Test func emptyWhenEverythingIsIdle() {
@@ -36,18 +168,11 @@ struct ActivityRowsTests {
             OverlayFixtures.workspace("Default", isDefault: true),
             OverlayFixtures.workspace("api"),
         ])
-        #expect(ActivityRows.make(from: quiet).isEmpty)
+        #expect(ActivityRows.sections(from: quiet).isEmpty)
     }
 
-    @Test func rowsPointAtTheirTab() {
-        let snap = snapshot()
-        let rows = ActivityRows.make(from: snap)
-        for row in rows {
-            let workspace = snap.workspace(id: row.workspaceID)
-            let tab = workspace?.tabs.first { $0.id == row.tabID }
-            #expect(tab?.title == row.title)
-            #expect(tab?.busiestSurfaceID == row.surfaceID)
-        }
+    @Test func idleTabsAreExcluded() {
+        #expect(!rows(snapshot()).contains { $0.title == "logs" || $0.title == "shell" })
     }
 
     @Test func timingMatchesTheSpec() {
@@ -81,7 +206,9 @@ struct ActivityRowsTests {
         #expect(api.state == .needsAttention)
         #expect(api.tabs.count == 1)
         #expect(api.tabs[0].state == .needsAttention)
-        #expect(api.tabs[0].busiestSurfaceID == second.id)
+        #expect(api.tabs[0].panes.map(\.id) == [first.id, second.id])
+        #expect(api.tabs[0].panes.map(\.state) == [.running, .needsAttention])
+        #expect(api.tabs[0].runningPaneCount == 1)
         #expect(api.tabs[0].lastCommand == "pnpm dev")
         #expect(api.tabs[0].title == "claude")
         #expect(api.selectedTabID == api.tabs[0].id)

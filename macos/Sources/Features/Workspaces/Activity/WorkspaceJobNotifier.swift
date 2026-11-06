@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct WorkspaceJobNotification: Equatable {
     enum Kind: String, Equatable {
@@ -33,7 +33,7 @@ struct WorkspaceJobVisibility: Equatable {
 }
 
 struct WorkspaceJobContext: Equatable {
-    var tabName: String
+    var terminalLabel: String
     var workspaceName: String
     var workspaceID: UUID
     var visibility: WorkspaceJobVisibility
@@ -121,8 +121,26 @@ final class WorkspaceJobNotifier {
         workspaceNotifications && desktopNotifications
     }
 
+    static func terminalLabel<ViewType: NSView & Codable & Identifiable>(
+        of surface: ViewType,
+        in tab: WorkspaceTab<ViewType>,
+        title: (ViewType) -> String,
+        pwd: (ViewType) -> String?
+    ) -> String where ViewType.ID == UUID {
+        let panes = Array(tab.tree)
+        let focused = panes.first { $0.id == tab.focusedSurfaceID } ?? panes.first
+        let tabTitle = WorkspaceTabTitle.override(tab.titleOverride)
+            ?? WorkspaceTabTitle.resolve(title: focused.map(title) ?? "", pwd: focused.flatMap(pwd))
+        return WorkspacePaneLabel.make(
+            tabTitle: tabTitle,
+            titleOverride: tab.titleOverride,
+            paneTitle: title(surface),
+            panePwd: pwd(surface),
+            paneCount: panes.count)
+    }
+
     static func title(_ context: WorkspaceJobContext) -> String {
-        context.tabName + " · " + context.workspaceName
+        context.terminalLabel + " · " + context.workspaceName
     }
 
     static func body(_ kind: WorkspaceJobNotification.Kind, detail: String?) -> String {

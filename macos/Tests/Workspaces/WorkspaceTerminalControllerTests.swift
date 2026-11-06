@@ -166,19 +166,19 @@ struct WorkspaceTerminalControllerTests {
         #expect(!WorkspaceWindowPolicy.canCloseWithoutConfirmation(store))
     }
 
-    @Test func tabsNeedingConfirmationFollowTheQuitPredicate() throws {
+    @Test func surfacesNeedingConfirmationFollowTheQuitPredicate() throws {
         let visible = ConfirmingView()
         let hidden = ConfirmingView()
         let store = try makeConfirmingStore(defaultView: visible, otherView: hidden)
         let other = try #require(store.workspaces.last)
         let defaultWorkspace = try #require(store.workspaces.first)
 
-        #expect(WorkspaceWindowPolicy.tabsNeedingConfirmation(workspaceID: other.id, in: store).isEmpty)
+        #expect(WorkspaceWindowPolicy.surfacesNeedingConfirmation(workspaceID: other.id, in: store).isEmpty)
 
         hidden.needsConfirmQuit = true
-        #expect(WorkspaceWindowPolicy.tabsNeedingConfirmation(workspaceID: other.id, in: store) == [other.tabs[0].id])
-        #expect(WorkspaceWindowPolicy.tabsNeedingConfirmation(workspaceID: defaultWorkspace.id, in: store).isEmpty)
-        #expect(WorkspaceWindowPolicy.tabsNeedingConfirmation(workspaceID: UUID(), in: store).isEmpty)
+        #expect(WorkspaceWindowPolicy.surfacesNeedingConfirmation(workspaceID: other.id, in: store) == [hidden.id])
+        #expect(WorkspaceWindowPolicy.surfacesNeedingConfirmation(workspaceID: defaultWorkspace.id, in: store).isEmpty)
+        #expect(WorkspaceWindowPolicy.surfacesNeedingConfirmation(workspaceID: UUID(), in: store).isEmpty)
     }
 
     @Test func tabNavigationResolvesIndexes() {

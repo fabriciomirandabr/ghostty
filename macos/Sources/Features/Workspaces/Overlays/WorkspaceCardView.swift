@@ -132,7 +132,7 @@ struct WorkspaceCardView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            WorkspaceStateBadge(state: workspace.state, runningCount: workspace.runningTabCount)
+            WorkspaceStateBadge(state: workspace.state, runningCount: workspace.runningPaneCount)
 
             Text(workspace.name)
                 .font(.system(size: 13, weight: .semibold))

@@ -119,6 +119,7 @@ struct WorkspaceTitlebarView: View {
                 runningCount: viewModel.badge.runningCount,
                 needsAttention: viewModel.badge.needsAttention,
                 isOpen: viewModel.isOverviewOpen,
+                isWindowVisible: viewModel.isWindowVisible,
                 onTap: { viewModel.badgeTapped() },
                 onHoverChanged: { viewModel.badgeHoverChanged($0) }
             )

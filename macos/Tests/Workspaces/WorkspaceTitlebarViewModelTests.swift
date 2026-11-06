@@ -55,7 +55,49 @@ struct WorkspaceTitlebarViewModelTests {
     }
 
     private static func tab(_ title: String, state: SurfaceActivityState = .idle) -> WorkspaceTitlebarTab {
-        WorkspaceTitlebarTab(id: UUID(), title: title, state: state)
+        WorkspaceTitlebarTab(id: UUID(), title: title, state: state, runningCount: state == .running ? 1 : 0)
+    }
+
+    @Test func splitTabRunningCountFeedsPillMenuAndBadge() {
+        let first = MockView()
+        let second = MockView()
+        let store = MockStore(defaultDirectory: WorkspaceFixtures.home, makeTab: {
+            WorkspaceFixtures.makeTab(views: [first, second])
+        })
+        let snapshot = WorkspaceTitlebarSnapshot.make(
+            store: store,
+            homeDirectory: WorkspaceFixtures.home,
+            activity: { _ in .running },
+            surfaceTitle: { _ in "agent" }
+        )
+
+        #expect(snapshot.tabs.count == 1)
+        #expect(snapshot.tabs[0].state == .running)
+        #expect(snapshot.tabs[0].runningCount == 2)
+        #expect(snapshot.workspaces[0].runningCount == 2)
+        #expect(snapshot.badge.runningCount == 2)
+
+        let model = WorkspaceTitlebarViewModel(shortcut: { _ in nil })
+        model.apply(snapshot)
+        #expect(model.menuItems[0].runningLabel == "2 running")
+    }
+
+    @Test func attentionPaneKeepsRunningCountOfTheOthers() {
+        let first = MockView()
+        let second = MockView()
+        let store = MockStore(defaultDirectory: WorkspaceFixtures.home, makeTab: {
+            WorkspaceFixtures.makeTab(views: [first, second])
+        })
+        let snapshot = WorkspaceTitlebarSnapshot.make(
+            store: store,
+            homeDirectory: WorkspaceFixtures.home,
+            activity: { $0.id == first.id ? .needsAttention : .running },
+            surfaceTitle: { _ in "agent" }
+        )
+
+        #expect(snapshot.tabs[0].state == .needsAttention)
+        #expect(snapshot.tabs[0].runningCount == 1)
+        #expect(snapshot.badge == .init(runningCount: 1, needsAttention: true))
     }
 
     @Test func menuItemsShape() {
@@ -448,11 +490,12 @@ struct WorkspaceTitlebarViewModelTests {
         #expect(snapshot.workspaces.map(\.name) == ["Default", "api"])
         #expect(snapshot.workspaces.map(\.folder) == ["~", "~/api"])
         #expect(snapshot.workspaces.map(\.state) == [.done, .needsAttention])
-        #expect(snapshot.workspaces.map(\.runningCount) == [0, 1])
+        #expect(snapshot.workspaces.map(\.runningCount) == [0, 2])
         #expect(snapshot.selectedWorkspaceID == workspace.id)
         #expect(snapshot.tabs.map(\.title) == ["shell", "renamed"])
         #expect(snapshot.tabs.map(\.state) == [.running, .needsAttention])
-        #expect(snapshot.badge == .init(runningCount: 1, needsAttention: true))
+        #expect(snapshot.tabs.map(\.runningCount) == [2, 0])
+        #expect(snapshot.badge == .init(runningCount: 2, needsAttention: true))
         #expect(snapshot.fontSize == 15)
     }
 

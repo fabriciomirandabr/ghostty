@@ -41,11 +41,29 @@ struct StatusIndicatorViewTests {
         #expect(StatusIndicatorView.badgeText(for: .done, context: .workspace, runningCount: 2) == nil)
     }
 
+    @Test func tabContextShowsDigitOnlyForTwoOrMorePanes() {
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .tab, runningCount: 1) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .tab, runningCount: 0) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .tab, runningCount: 2) == "2")
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .tab, runningCount: 9) == "9")
+        #expect(StatusIndicatorView.badgeText(for: .needsAttention, context: .tab, runningCount: 2) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .done, context: .tab, runningCount: 2) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .idle, context: .tab, runningCount: 0) == nil)
+    }
+
+    @Test func pillDigitFollowsTheTabRunningCount() {
+        let split = WorkspaceTitlebarTab(id: UUID(), title: "api", state: .running, runningCount: 2)
+        let single = WorkspaceTitlebarTab(id: UUID(), title: "api", state: .running, runningCount: 1)
+        let attention = WorkspaceTitlebarTab(id: UUID(), title: "api", state: .needsAttention, runningCount: 2)
+        #expect(WorkspaceTabPill.indicatorText(for: split) == "2")
+        #expect(WorkspaceTabPill.indicatorText(for: single) == nil)
+        #expect(WorkspaceTabPill.indicatorText(for: attention) == nil)
+    }
+
     @Test(arguments: [
         SurfaceActivityState.idle, .running, .done, .needsAttention,
     ])
-    func tabContextsShowNoDigit(state: SurfaceActivityState) {
+    func singlePaneTabsShowNoDigit(state: SurfaceActivityState) {
         #expect(StatusIndicatorView.badgeText(for: state, context: .tab, runningCount: 1) == nil)
-        #expect(StatusIndicatorView.badgeText(for: state, context: .tab, runningCount: 5) == nil)
     }
 }

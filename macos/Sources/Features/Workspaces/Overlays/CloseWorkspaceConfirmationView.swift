@@ -35,19 +35,20 @@ struct CloseWorkspaceConfirmation: Equatable {
 
     static func make(
         for workspace: WorkspaceSummary,
-        foregroundProcessTabs: Set<UUID>
+        foregroundProcessSurfaces: Set<UUID>
     ) -> CloseWorkspaceConfirmation {
         CloseWorkspaceConfirmation(
             workspaceID: workspace.id,
             workspaceName: workspace.name,
             rows: workspace.tabs
-                .filter { isBusy($0.state) || foregroundProcessTabs.contains($0.id) }
+                .flatMap(\.panes)
+                .filter { isBusy($0.state) || foregroundProcessSurfaces.contains($0.id) }
                 .map {
                     Row(
                         id: $0.id,
-                        title: $0.title,
+                        title: $0.label,
                         state: $0.state,
-                        hasForegroundProcess: foregroundProcessTabs.contains($0.id))
+                        hasForegroundProcess: foregroundProcessSurfaces.contains($0.id))
                 }
         )
     }
@@ -55,10 +56,10 @@ struct CloseWorkspaceConfirmation: Equatable {
     static func resolve(
         workspaceID: UUID,
         in snapshot: WorkspaceOverlaySnapshot,
-        foregroundProcessTabs: Set<UUID>
+        foregroundProcessSurfaces: Set<UUID>
     ) -> CloseWorkspaceConfirmation? {
         guard let workspace = snapshot.workspace(id: workspaceID), !workspace.isDefault else { return nil }
-        return make(for: workspace, foregroundProcessTabs: foregroundProcessTabs)
+        return make(for: workspace, foregroundProcessSurfaces: foregroundProcessSurfaces)
     }
 }
 

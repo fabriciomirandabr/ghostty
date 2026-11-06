@@ -19,6 +19,10 @@ struct WorkspaceTabPill: View {
     @State private var visibleWidth: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
 
+    static func indicatorText(for tab: WorkspaceTitlebarTab) -> String? {
+        StatusIndicatorView.badgeText(for: tab.state, context: .tab, runningCount: tab.runningCount)
+    }
+
     static func isTruncated(naturalWidth: CGFloat, visibleWidth: CGFloat) -> Bool {
         naturalWidth > visibleWidth + 0.5
     }
@@ -34,7 +38,7 @@ struct WorkspaceTabPill: View {
             StatusIndicatorView(
                 state: tab.state,
                 diameter: Self.badgeSize,
-                badgeText: StatusIndicatorView.badgeText(for: tab.state, context: .tab, runningCount: 1)
+                badgeText: Self.indicatorText(for: tab)
             )
             .frame(width: Self.indicatorSize, height: Self.indicatorSize)
 
@@ -70,7 +74,7 @@ struct WorkspaceTabPill: View {
         ))
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(tab.title)
+        .accessibilityLabel(tab.runningCount >= 2 ? "\(tab.title), \(tab.runningCount) running" : tab.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 

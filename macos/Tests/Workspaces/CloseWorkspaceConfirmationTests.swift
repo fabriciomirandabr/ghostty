@@ -14,7 +14,7 @@ struct CloseWorkspaceConfirmationTests {
     }
 
     @Test func listsOnlyBusyTabs() {
-        let confirmation = CloseWorkspaceConfirmation.make(for: busyWorkspace(), foregroundProcessTabs: [])
+        let confirmation = CloseWorkspaceConfirmation.make(for: busyWorkspace(), foregroundProcessSurfaces: [])
         #expect(confirmation.rows.map(\.title) == ["dev", "agent"])
         #expect(confirmation.rows.map(\.state) == [.running, .needsAttention])
         #expect(confirmation.requiresConfirmation)
@@ -22,12 +22,61 @@ struct CloseWorkspaceConfirmationTests {
     }
 
     @Test func headlineCountsListedTabs() {
-        let busy = CloseWorkspaceConfirmation.make(for: busyWorkspace(), foregroundProcessTabs: [])
+        let busy = CloseWorkspaceConfirmation.make(for: busyWorkspace(), foregroundProcessSurfaces: [])
         #expect(busy.headline == "2 terminals running. Close anyway?")
 
         let single = OverlayFixtures.workspace("web", tabs: [TabSpec(title: "dev", state: .running)])
-        let one = CloseWorkspaceConfirmation.make(for: single, foregroundProcessTabs: [])
+        let one = CloseWorkspaceConfirmation.make(for: single, foregroundProcessSurfaces: [])
         #expect(one.headline == "1 terminal running. Close anyway?")
+    }
+
+    @Test func oneSplitTabWithTwoRunningPanesListsTwoRows() {
+        let workspace = OverlayFixtures.workspace("api", tabs: [
+            TabSpec(title: "agent", panes: [
+                PaneSpec(title: "claude", state: .running),
+                PaneSpec(title: "tests", state: .running),
+            ]),
+        ])
+        let confirmation = CloseWorkspaceConfirmation.make(for: workspace, foregroundProcessSurfaces: [])
+        #expect(confirmation.headline == "2 terminals running. Close anyway?")
+        #expect(confirmation.rows.count == 2)
+        #expect(confirmation.rows.map(\.title) == workspace.tabs[0].panes.map(\.label))
+        #expect(confirmation.rows.map(\.id) == workspace.tabs[0].panes.map(\.id))
+    }
+
+    @Test func splitTabRowsUseTheRenamedPaneLabels() throws {
+        let store = WorkspaceFixtures.makeStore()
+        let claude = MockView()
+        let tests = MockView()
+        let workspace = try store.addWorkspace(name: "api", directory: URL(fileURLWithPath: "/tmp/ws-home/api")) {
+            WorkspaceFixtures.makeTab(title: "agent", views: [claude, tests])
+        }
+        let titles = [claude.id: "claude", tests.id: "tests"]
+        let snapshot = store.overlaySnapshot { view in
+            WorkspaceSurfaceInfo(title: titles[view.id] ?? "shell", lastCommand: nil, state: .running)
+        }
+
+        let confirmation = try #require(
+            CloseWorkspaceConfirmation.resolve(
+                workspaceID: workspace.id, in: snapshot, foregroundProcessSurfaces: []))
+        #expect(confirmation.rows.count == 2)
+        #expect(Set(confirmation.rows.map(\.title)) == ["agent › claude", "agent › tests"])
+        #expect(Set(confirmation.rows.map(\.id)) == [claude.id, tests.id])
+    }
+
+    @Test func foregroundProcessIsPerPane() {
+        let workspace = OverlayFixtures.workspace("ops", tabs: [
+            TabSpec(title: "work", panes: [
+                PaneSpec(title: "vim", state: .idle),
+                PaneSpec(title: "shell", state: .idle),
+            ]),
+        ])
+        let vimPane = workspace.tabs[0].panes[0].id
+
+        let confirmation = CloseWorkspaceConfirmation.make(for: workspace, foregroundProcessSurfaces: [vimPane])
+        #expect(confirmation.rows.map(\.id) == [vimPane])
+        #expect(confirmation.rows.map(\.suffix) == ["process running"])
+        #expect(confirmation.headline == "1 terminal running. Close anyway?")
     }
 
     @Test func noConfirmationWhenNothingIsBusy() {
@@ -35,7 +84,7 @@ struct CloseWorkspaceConfirmationTests {
             TabSpec(title: "a", state: .done),
             TabSpec(title: "b", state: .idle),
         ])
-        let confirmation = CloseWorkspaceConfirmation.make(for: calm, foregroundProcessTabs: [])
+        let confirmation = CloseWorkspaceConfirmation.make(for: calm, foregroundProcessSurfaces: [])
         #expect(confirmation.rows.isEmpty)
         #expect(!confirmation.requiresConfirmation)
     }
@@ -46,9 +95,9 @@ struct CloseWorkspaceConfirmationTests {
             TabSpec(title: "build", state: .running),
             TabSpec(title: "shell", state: .idle),
         ])
-        let vimTab = workspace.tabs[0].id
+        let vimPane = workspace.tabs[0].panes[0].id
 
-        let confirmation = CloseWorkspaceConfirmation.make(for: workspace, foregroundProcessTabs: [vimTab])
+        let confirmation = CloseWorkspaceConfirmation.make(for: workspace, foregroundProcessSurfaces: [vimPane])
         #expect(confirmation.requiresConfirmation)
         #expect(confirmation.rows.map(\.title) == ["vim", "build"])
         #expect(confirmation.rows.map(\.suffix) == ["process running", "running"])
@@ -56,7 +105,7 @@ struct CloseWorkspaceConfirmationTests {
 
         let alone = CloseWorkspaceConfirmation.make(
             for: OverlayFixtures.workspace("ssh", tabs: [TabSpec(title: "ssh", state: .idle)]),
-            foregroundProcessTabs: [])
+            foregroundProcessSurfaces: [])
         #expect(!alone.requiresConfirmation)
     }
 
@@ -69,7 +118,7 @@ struct CloseWorkspaceConfirmationTests {
         state.requestClose(workspaceID: workspace.id, anchor: .titlebar, in: snapshot) { closed.append($0) }
         #expect(closed == [workspace.id])
 
-        state.foregroundProcessTabs = { id in id == workspace.id ? [workspace.tabs[0].id] : [] }
+        state.foregroundProcessSurfaces = { id in id == workspace.id ? [workspace.tabs[0].panes[0].id] : [] }
         closed = []
         state.requestClose(workspaceID: workspace.id, anchor: .titlebar, in: snapshot) { closed.append($0) }
         #expect(closed.isEmpty)
@@ -79,7 +128,7 @@ struct CloseWorkspaceConfirmationTests {
     @Test func defaultWorkspaceNeverResolves() {
         let def = OverlayFixtures.workspace("Default", isDefault: true, tabs: [TabSpec(title: "x", state: .running)])
         let snapshot = OverlayFixtures.snapshot([def])
-        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: def.id, in: snapshot, foregroundProcessTabs: []) == nil)
+        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: def.id, in: snapshot, foregroundProcessSurfaces: []) == nil)
     }
 
     @Test func dismissesWhenWorkspaceGone() throws {
@@ -91,14 +140,14 @@ struct CloseWorkspaceConfirmationTests {
         let state = WorkspaceOverlayState()
 
         let before = store.overlaySnapshot { _ in busy }
-        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: workspace.id, in: before, foregroundProcessTabs: []) != nil)
+        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: workspace.id, in: before, foregroundProcessSurfaces: []) != nil)
         state.present(.closeConfirmation(workspaceID: workspace.id, anchor: .titlebar))
         #expect(state.closeConfirmation?.workspaceID == workspace.id)
 
         #expect(store.closeWorkspace(id: workspace.id))
 
         let after = store.overlaySnapshot { _ in busy }
-        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: workspace.id, in: after, foregroundProcessTabs: []) == nil)
+        #expect(CloseWorkspaceConfirmation.resolve(workspaceID: workspace.id, in: after, foregroundProcessSurfaces: []) == nil)
         state.reconcile(workspaceIDs: after.workspaceIDs)
         #expect(state.closeConfirmation == nil)
         #expect(!state.isAnyOpen)

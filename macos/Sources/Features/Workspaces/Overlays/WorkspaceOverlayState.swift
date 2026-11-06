@@ -45,7 +45,7 @@ enum WorkspaceOverlay: Equatable {
 final class WorkspaceOverlayState: ObservableObject {
     @Published private(set) var overlays: [WorkspaceOverlay] = []
     @Published var sort: WorkspaceOverviewSort = .creation
-    var foregroundProcessTabs: (UUID) -> Set<UUID> = { _ in [] }
+    var foregroundProcessSurfaces: (UUID) -> Set<UUID> = { _ in [] }
 
     var top: WorkspaceOverlay? {
         overlays.last
@@ -134,7 +134,7 @@ final class WorkspaceOverlayState: ObservableObject {
         guard let workspace = snapshot.workspace(id: workspaceID), !workspace.isDefault else { return }
         let confirmation = CloseWorkspaceConfirmation.make(
             for: workspace,
-            foregroundProcessTabs: foregroundProcessTabs(workspaceID))
+            foregroundProcessSurfaces: foregroundProcessSurfaces(workspaceID))
         if confirmation.requiresConfirmation {
             present(.closeConfirmation(workspaceID: workspaceID, anchor: anchor))
         } else {

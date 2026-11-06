@@ -49,12 +49,12 @@ private struct Harness {
         windowIsKey: true, appIsActive: false, workspaceIsSelected: true, tabIsSelected: true, surfaceIsFocused: true)
 
     func context(
-        tab: String = "build",
+        terminal: String = "build",
         workspaceName: String = "api",
         visibility: WorkspaceJobVisibility = Harness.hidden
     ) -> WorkspaceJobContext {
         WorkspaceJobContext(
-            tabName: tab, workspaceName: workspaceName, workspaceID: workspace, visibility: visibility)
+            terminalLabel: terminal, workspaceName: workspaceName, workspaceID: workspace, visibility: visibility)
     }
 
     func send(
@@ -351,13 +351,65 @@ struct WorkspaceJobNotificationPayloadTests {
         #expect(result.hasSuffix("…"))
     }
 
-    @Test func titleJoinsTabAndWorkspace() {
+    @Test func titleJoinsTerminalAndWorkspace() {
         let context = WorkspaceJobContext(
-            tabName: "deploy",
+            terminalLabel: "deploy",
             workspaceName: "infra",
             workspaceID: UUID(),
             visibility: Harness.hidden)
         #expect(WorkspaceJobNotifier.title(context) == "deploy · infra")
+    }
+
+    private func notificationTitle(
+        tab: MockTab,
+        surface: MockView,
+        titles: [UUID: String]
+    ) -> String {
+        let label = WorkspaceJobNotifier.terminalLabel(
+            of: surface, in: tab, title: { titles[$0.id] ?? "" }, pwd: { _ in nil })
+        return WorkspaceJobNotifier.title(WorkspaceJobContext(
+            terminalLabel: label,
+            workspaceName: "api",
+            workspaceID: UUID(),
+            visibility: Harness.hidden))
+    }
+
+    @Test func renamedSplitTabTitlesEachPaneWithTabAndPane() {
+        let claude = MockView()
+        let tests = MockView()
+        let tab = WorkspaceFixtures.makeTab(title: "agent", views: [claude, tests])
+        let titles = [claude.id: "claude", tests.id: "tests"]
+
+        #expect(notificationTitle(tab: tab, surface: claude, titles: titles) == "agent › claude · api")
+        #expect(notificationTitle(tab: tab, surface: tests, titles: titles) == "agent › tests · api")
+    }
+
+    @Test func unrenamedSplitTabTitlesWithThePaneOnly() {
+        let claude = MockView()
+        let tests = MockView()
+        let tab = WorkspaceFixtures.makeTab(views: [claude, tests])
+        let titles = [claude.id: "claude", tests.id: "tests"]
+
+        #expect(notificationTitle(tab: tab, surface: tests, titles: titles) == "tests · api")
+    }
+
+    @Test func singlePaneTabKeepsTheTabTitle() {
+        let claude = MockView()
+        let plain = WorkspaceFixtures.makeTab(views: [claude])
+        let renamed = WorkspaceFixtures.makeTab(title: "agent", views: [claude])
+        let titles = [claude.id: "claude"]
+
+        #expect(notificationTitle(tab: plain, surface: claude, titles: titles) == "claude · api")
+        #expect(notificationTitle(tab: renamed, surface: claude, titles: titles) == "agent · api")
+    }
+
+    @Test func contextCarriesPaneLabelForSplitTab() throws {
+        let h = Harness()
+        h.send(.running, context: h.context(terminal: "agent › claude"))
+        h.send(.done, context: h.context(terminal: "agent › claude"))
+        let note = try #require(h.sink.posted.first)
+        #expect(note.title == "agent › claude · api")
+        #expect(WorkspaceJobNotifier.title(h.context(terminal: "agent › claude")) == "agent › claude · api")
     }
 
     @Test func programDetailReachesTheNotificationBody() throws {

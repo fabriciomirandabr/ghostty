@@ -16,13 +16,24 @@ struct WorkspaceActivityAggregatorTests {
         #expect(WorkspaceActivityAggregator.workspaceState([[.running], [.idle, .needsAttention]]) == .needsAttention)
     }
 
-    @Test func badgeCountsRunningTabs() {
+    @Test func badgeCountsRunningPanes() {
         let summary = WorkspaceActivityAggregator.summary([
             [.running, .running],
             [.running],
             [.idle, .done],
         ])
+        #expect(summary == .init(runningCount: 3, needsAttention: false))
+    }
+
+    @Test func oneSplitTabWithTwoRunningPanesCountsTwo() {
+        let summary = WorkspaceActivityAggregator.summary([[.running, .running]])
         #expect(summary == .init(runningCount: 2, needsAttention: false))
+    }
+
+    @Test func runningPaneCountIgnoresOtherStates() {
+        #expect(WorkspaceActivityAggregator.runningPaneCount([.running, .done, .running, .needsAttention]) == 2)
+        #expect(WorkspaceActivityAggregator.runningPaneCount([.idle, .done, .needsAttention]) == 0)
+        #expect(WorkspaceActivityAggregator.runningPaneCount([]) == 0)
     }
 
     @Test func attentionFromAnySurface() {

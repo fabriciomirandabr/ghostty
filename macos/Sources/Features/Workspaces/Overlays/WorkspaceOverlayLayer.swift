@@ -46,7 +46,7 @@ struct WorkspaceOverlayLayer: View {
 
             if state.isOpen(.activityPopover) {
                 ActivityPopoverView(
-                    rows: ActivityRows.make(from: snapshot),
+                    sections: ActivityRows.sections(from: snapshot),
                     onSelect: { row in
                         state.dismissTransient()
                         state.dismiss(.overview)
@@ -68,7 +68,7 @@ struct WorkspaceOverlayLayer: View {
                let confirmation = CloseWorkspaceConfirmation.resolve(
                    workspaceID: pending.workspaceID,
                    in: snapshot,
-                   foregroundProcessTabs: state.foregroundProcessTabs(pending.workspaceID)) {
+                   foregroundProcessSurfaces: state.foregroundProcessSurfaces(pending.workspaceID)) {
                 CloseWorkspaceConfirmationView(
                     confirmation: confirmation,
                     onCancel: { state.dismiss(.closeConfirmation) },

@@ -138,9 +138,9 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         WorkspaceJobNotificationCenterSink.requestAuthorizationIfEnabled(
             workspaceNotifications: ghostty.config.workspaceNotifications,
             desktopNotifications: ghostty.config.desktopNotifications)
-        overlayState.foregroundProcessTabs = { [weak self] workspaceID in
+        overlayState.foregroundProcessSurfaces = { [weak self] workspaceID in
             guard let self else { return [] }
-            return WorkspaceWindowPolicy.tabsNeedingConfirmation(workspaceID: workspaceID, in: self.store)
+            return WorkspaceWindowPolicy.surfacesNeedingConfirmation(workspaceID: workspaceID, in: self.store)
         }
 
         storeCancellable = store.objectWillChange.sink { [weak self] _ in
@@ -193,6 +193,11 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             self,
             selector: #selector(onToggleActivityPopover(_:)),
             name: Ghostty.Notification.ghosttyToggleActivityPopover,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(windowOcclusionDidChange(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification,
             object: nil)
         center.addObserver(
             self,
@@ -289,6 +294,11 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     func persistNow() {
         recordFocusInSelectedTab()
         persistence.flush(persistedState(), from: self, enabled: persistenceEnabled)
+    }
+
+    @objc private func windowOcclusionDidChange(_ notification: Notification) {
+        guard let changed = notification.object as? NSWindow, changed === window else { return }
+        scheduleChromeRefresh()
     }
 
     @objc private func applicationWillTerminate(_ notification: Notification) {
@@ -429,6 +439,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fontSize: currentFontSize,
             canSplit: focusedSurface?.surfaceModel != nil,
+            isWindowVisible: window?.occlusionState.contains(.visible) ?? false,
             activity: { $0.activityState },
             surfaceTitle: { Self.focusedSurface(of: $0)?.title ?? "" },
             surfacePwd: { Self.focusedSurface(of: $0)?.pwd }))
@@ -462,13 +473,12 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         guard let workspace = store.workspace(containing: surface),
               let tab = workspace.tab(containing: surface) else { return nil }
 
-        let titled = Self.focusedSurface(of: tab)
-        let override = WorkspaceTabTitle.override(tab.titleOverride)
-        let tabName = override ?? WorkspaceTabTitle.resolve(title: titled?.title ?? "", pwd: titled?.pwd)
+        let terminalLabel = WorkspaceJobNotifier.terminalLabel(
+            of: surface, in: tab, title: { $0.title }, pwd: { $0.pwd })
         let windowIsKey = window.map { $0.isKeyWindow && $0.isVisible && $0.occlusionState.contains(.visible) } ?? false
 
         return WorkspaceJobContext(
-            tabName: tabName,
+            terminalLabel: terminalLabel,
             workspaceName: workspace.name,
             workspaceID: workspace.id,
             visibility: WorkspaceJobVisibility(

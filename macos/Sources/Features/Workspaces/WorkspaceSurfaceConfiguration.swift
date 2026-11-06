@@ -77,14 +77,14 @@ enum WorkspaceWindowPolicy {
     }
 
     @MainActor
-    static func tabsNeedingConfirmation<ViewType: NSView & Codable & Identifiable & QuitConfirmable>(
+    static func surfacesNeedingConfirmation<ViewType: NSView & Codable & Identifiable & QuitConfirmable>(
         workspaceID: UUID,
         in store: WorkspaceStore<ViewType>
     ) -> Set<UUID> where ViewType.ID == UUID {
         guard let workspace = store.workspace(id: workspaceID) else { return [] }
-        return Set(workspace.tabs.filter { tab in
-            tab.tree.contains { $0.needsConfirmQuit }
-        }.map(\.id))
+        return Set(workspace.tabs.flatMap { tab in
+            tab.tree.filter { $0.needsConfirmQuit }.map(\.id)
+        })
     }
 
     @MainActor

@@ -7,13 +7,30 @@ struct WorkspaceSurfaceInfo: Equatable {
     var pwd: String?
 }
 
+struct WorkspacePaneSummary: Identifiable, Equatable {
+    let id: UUID
+    var title: String
+    var label: String
+    var state: SurfaceActivityState
+    var pwd: String?
+    var lastCommand: String?
+}
+
 struct WorkspaceTabSummary: Identifiable, Equatable {
     let id: UUID
     let workspaceID: UUID
     var title: String
     var state: SurfaceActivityState
     var lastCommand: String?
-    var busiestSurfaceID: UUID?
+    var panes: [WorkspacePaneSummary]
+
+    var runningPaneCount: Int {
+        panes.filter { $0.state == .running }.count
+    }
+
+    var isSplit: Bool {
+        panes.count >= 2
+    }
 }
 
 struct WorkspaceSummary: Identifiable, Equatable {
@@ -26,8 +43,8 @@ struct WorkspaceSummary: Identifiable, Equatable {
     var selectedTabID: UUID
     var tabs: [WorkspaceTabSummary]
 
-    var runningTabCount: Int {
-        tabs.filter { $0.state == .running }.count
+    var runningPaneCount: Int {
+        tabs.reduce(0) { $0 + $1.runningPaneCount }
     }
 }
 
@@ -79,16 +96,33 @@ extension WorkspaceStore {
                 let focused = infos.first { $0.surface.id == tab.focusedSurfaceID } ?? infos.first
                 let override = WorkspaceTabTitle.override(tab.titleOverride)
                 let command = busiest?.info.lastCommand.flatMap { $0.isEmpty ? nil : $0 }
+                let tabTitle = override ?? WorkspaceTabTitle.resolve(
+                    title: focused?.info.title ?? "",
+                    pwd: focused?.info.pwd)
+
+                let panes = infos.map { entry in
+                    WorkspacePaneSummary(
+                        id: entry.surface.id,
+                        title: WorkspaceTabTitle.resolve(title: entry.info.title, pwd: entry.info.pwd),
+                        label: WorkspacePaneLabel.make(
+                            tabTitle: tabTitle,
+                            titleOverride: tab.titleOverride,
+                            paneTitle: entry.info.title,
+                            panePwd: entry.info.pwd,
+                            paneCount: infos.count),
+                        state: entry.info.state,
+                        pwd: entry.info.pwd,
+                        lastCommand: entry.info.lastCommand.flatMap { $0.isEmpty ? nil : $0 }
+                    )
+                }
 
                 return WorkspaceTabSummary(
                     id: tab.id,
                     workspaceID: workspace.id,
-                    title: override ?? WorkspaceTabTitle.resolve(
-                        title: focused?.info.title ?? "",
-                        pwd: focused?.info.pwd),
+                    title: tabTitle,
                     state: WorkspaceActivityAggregator.tabState(infos.map(\.info.state)),
                     lastCommand: command,
-                    busiestSurfaceID: busiest?.surface.id
+                    panes: panes
                 )
             }
 

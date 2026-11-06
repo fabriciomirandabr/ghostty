@@ -56,18 +56,36 @@ enum SplitPaneHeader {
 
 struct SplitPaneHeaderView: View {
     static let height: CGFloat = 24
+    static let indicatorDiameter: CGFloat = 10
 
     let title: String
+    let state: SurfaceActivityState
     let isActive: Bool
     let onClose: () -> Void
 
     @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
 
+    static func showsIndicator(for state: SurfaceActivityState) -> Bool {
+        state != .idle
+    }
+
+    static func accessibilityLabel(title: String, state: SurfaceActivityState) -> String {
+        showsIndicator(for: state)
+            ? "Pane \(title), \(StatusIndicatorView.accessibilityLabel(for: state))"
+            : "Pane \(title)"
+    }
+
     var body: some View {
         let palette = SplitPaneHeaderPalette(colorScheme: colorScheme)
+        let showsIndicator = Self.showsIndicator(for: state)
 
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            if showsIndicator {
+                StatusIndicatorView(state: state, diameter: Self.indicatorDiameter, badgeText: nil)
+                    .frame(width: Self.indicatorDiameter + 5, height: Self.indicatorDiameter + 5)
+            }
+
             Text(title)
                 .font(.system(size: 11))
                 .foregroundColor(isActive ? palette.activeText : palette.text)
@@ -79,7 +97,7 @@ struct SplitPaneHeaderView: View {
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
         }
-        .padding(.leading, 14)
+        .padding(.leading, showsIndicator ? 10 : 14)
         .padding(.trailing, 6)
         .frame(height: Self.height)
         .frame(maxWidth: .infinity)
@@ -95,7 +113,7 @@ struct SplitPaneHeaderView: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pane \(title)")
+        .accessibilityLabel(Self.accessibilityLabel(title: title, state: state))
     }
 
     private struct CloseButton: View {
@@ -126,16 +144,19 @@ struct SplitPaneHeaderHost: View {
     let onClose: () -> Void
 
     @State private var title: String
+    @State private var state: SurfaceActivityState
 
     init(surfaceView: Ghostty.SurfaceView, isActive: Bool, onClose: @escaping () -> Void) {
         self.surfaceView = surfaceView
         self.isActive = isActive
         self.onClose = onClose
         _title = State(initialValue: surfaceView.title)
+        _state = State(initialValue: surfaceView.activityState)
     }
 
     var body: some View {
-        SplitPaneHeaderView(title: title, isActive: isActive, onClose: onClose)
+        SplitPaneHeaderView(title: title, state: state, isActive: isActive, onClose: onClose)
             .onReceive(surfaceView.$title.removeDuplicates()) { title = $0 }
+            .onReceive(surfaceView.$activityState.removeDuplicates()) { state = $0 }
     }
 }

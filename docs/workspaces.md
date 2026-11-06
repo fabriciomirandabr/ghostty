@@ -52,7 +52,7 @@ Every window has a workspace called `Default`, first in the list. It cannot be c
 
 ### Tabs
 
-The tab bar shows one pill per tab of the active workspace: a circle state indicator on the left (no digit), the name, and an x on hover or when active. The `+` after the last pill opens a new terminal. The split button right after it splits the focused terminal of the selected tab: a click splits right (`new_split:right`) and an Option-click splits down (`new_split:down`), the same path as `Cmd+D` and `Cmd+Shift+D`. Its tooltip reads `Split Terminal` and `Option-click: Split Down`, each followed by the shortcut from your config when the action has one. With no focused terminal the click does nothing.
+The tab bar shows one pill per tab of the active workspace: a circle state indicator on the left, the name, and an x on hover or when active. A split tab shows the highest state among its panes: the ring while any pane runs, and a small digit inside it with the number of running panes when two or more run (no digit for one running pane, nor for the needs you, done and idle states). The pill reads `name, N running` to VoiceOver when N is two or more. The `+` after the last pill opens a new terminal. The split button right after it splits the focused terminal of the selected tab: a click splits right (`new_split:right`) and an Option-click splits down (`new_split:down`), the same path as `Cmd+D` and `Cmd+Shift+D`. Its tooltip reads `Split Terminal` and `Option-click: Split Down`, each followed by the shortcut from your config when the action has one. With no focused terminal the click does nothing.
 
 ![Tab bar](images/workspaces/tab-bar.png)
 
@@ -85,7 +85,7 @@ Only workspace windows get this menu. Other windows, the quick terminal included
 
 The workspace button (chevron plus name) in the title bar opens a menu:
 
-- The workspace list, each entry with state indicator, running count (`N running`), abbreviated folder and, for the first nine, its shortcut.
+- The workspace list, each entry with state indicator, running count (`N running`, one per running pane, so a tab split in two with both panes running counts 2), abbreviated folder and, for the first nine, its shortcut.
 - Switch Workspace, New Workspace, New Terminal, Close Workspace, Show All.
 - A Font Size submenu with 12, 13, 14, 15, 16 and 18.
 
@@ -103,34 +103,34 @@ Every new terminal in a workspace starts in the workspace folder, not in the wor
 
 Closing the last tab of a workspace opens a fresh shell tab. A workspace never has zero tabs.
 
-Closing a workspace happens immediately when nothing is running. Otherwise an inline confirmation lists the running terminals (`N terminals running. Close anyway?`) with Cancel and Close. Closing selects the previous workspace in the list. Close a workspace from the menu, the card x or `Cmd+Shift+W`.
+Closing a workspace happens immediately when nothing is running. Otherwise an inline confirmation lists one row per busy pane (running, needs you, or a foreground process), each with its indicator, its label (the pane label described in [Activity popover](#activity-popover), such as `api › web`) and a suffix (`running`, `needs you` or `process running`). The header counts those rows (`N terminals running. Close anyway?`) with Cancel and Close. Closing selects the previous workspace in the list. Close a workspace from the menu, the card x or `Cmd+Shift+W`.
 
 Inactive workspaces keep their processes alive and keep updating the badge.
 
 ### Activity badge
 
-The badge at the right of the title bar summarizes the activity of the whole window. It is a circle with a dark fill and white text in dark mode, and the mirror in light mode (light fill, dark text). The fill is the same whether or not anything runs. Nothing animates.
+The badge at the right of the title bar summarizes the activity of the whole window. It is a circle with a dark fill and white text in dark mode, and the mirror in light mode (light fill, dark text). The fill is the same whether or not anything runs. While terminals run, a thin ring around the badge becomes a 270° arc that turns in eight steps, four times a second; it stays a still full ring when Reduce Motion is on or the window is not key. Nothing else animates.
 
 Terminal states:
 
-- running: a static thin ring around the badge. The badge shows the count of running terminals.
+- running: a thin ring around the badge, turning as described above. The badge shows the count of running terminals, and every split pane counts on its own: a tab with two running panes adds 2, and a window with a tab of two running panes plus one running single-pane tab shows 3.
 - needs you: the digit and the ring turn amber (`0xF5D90A` in dark mode, `0x8A5A00` in light mode).
 - done: a check, kept for 10 seconds, then idle.
 - idle: a grid icon in the bar and nothing in a tab row.
 
 Aggregation priority: needs you, running, done, idle.
 
-The count appears only where the view is about workspaces: the bar badge, the workspace cards, the quick switcher and the workspace menu. A tab row is one terminal, so it shows the state indicator with no digit.
+The count appears where the view is about workspaces: the bar badge, the workspace cards, the quick switcher (`N running`) and the workspace menu, always counting running panes. A tab pill shows the state indicator and, only when the tab is running with two or more panes, a small digit with that number (hidden when the tab needs you). A tab tracks its panes as one state: needs you if any pane needs you, otherwise running if any runs, otherwise done if any finished in the last 10 seconds, otherwise idle.
 
 ### Activity popover
 
-Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (no digit, since a row is one terminal: a static ring when running, an amber ring when it needs you, a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
+Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the panes that are not idle, one row per pane, sorted by priority. Each row has a round indicator in the same style as the badge (no digit, since a row is one pane: a static ring when running, an amber ring when it needs you, a check when done), the name and `workspace · last command`. A tab without splits is one row named after the tab. A split tab is a section: a header `tab · workspace` that does not respond to clicks, then one row per non-idle pane under it, each with the pane title and `folder · last command`. In a split tab a pane is labeled with its own title, prefixed by the name you gave the tab when it has one, as `tab › pane` (for example `api › web`). Sections are ordered by their highest state, rows inside a section by state and then by pane order. A split tab whose panes are all idle does not appear. A click on a row focuses that pane, selecting its workspace and tab first. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
 
 ![Activity popover](images/workspaces/activity-popover.png)
 
 ### Workspace grid
 
-Click the badge, or press `Cmd+O`, to open the grid of workspace cards. Each card has a thumbnail, a state badge (Running, Needs you, Done), the name and the folder. The header menu offers `Sort by name` and `Sort by activity`, with `Default` always first. A `+ New workspace` card sits in the grid. A click selects a workspace, `Esc` closes the grid. The thumbnail of the active workspace is live; inactive ones show the last snapshot taken when you left them.
+Click the badge, or press `Cmd+O`, to open the grid of workspace cards. Each card has a thumbnail, a state badge (Running, Needs you, Done; the running count is the number of running panes), the name and the folder. The header menu offers `Sort by name` and `Sort by activity`, with `Default` always first. A `+ New workspace` card sits in the grid. A click selects a workspace, `Esc` closes the grid. The thumbnail of the active workspace is live; inactive ones show the last snapshot taken when you left them.
 
 ### Quick switcher
 
@@ -138,7 +138,7 @@ Click the badge, or press `Cmd+O`, to open the grid of workspace cards. Each car
 
 ### Splits
 
-When a tab has splits, every pane gets a 24 pt header with the title and an x on hover. The active pane has a thin line on top. A tab without splits has no headers.
+When a tab has splits, every pane gets a 24 pt header with the title and an x on hover. At the left of the title, the header shows the pane's own state: a ring while it runs, an amber dot when it needs you, a check when it is done, and nothing when it is idle. The glyph has no digit and does not animate, and it follows the pane, not the tab. The active pane has a thin line on top. A tab without splits has no headers.
 
 ![Split pane headers](images/workspaces/split-headers.png)
 
@@ -312,7 +312,7 @@ Limitations:
 
 ### macOS notifications
 
-A notification fires when a job finishes (running, then done) or needs you, if that terminal is not the focused one of the active workspace and tab. The title is `tab name · workspace name`, the body is `Done` or `Needs you`, plus up to 120 characters of detail from the program status message. A click focuses the workspace and the tab. Repeated notifications for the same terminal within 2 seconds are coalesced, and a needs-you notification is retracted when the state changes. macOS asks for permission on first launch.
+A notification fires when a job finishes (running, then done) or needs you, if that terminal is not the focused one of the active workspace and tab. Notifications are per pane: the title is `tab › pane · workspace` (for example `api › worker · docs`) using the pane label from [Activity popover](#activity-popover), and a tab without splits keeps `tab name · workspace name`. The body is `Done` or `Needs you`, plus up to 120 characters of detail from the program status message. A pane in a split does not notify while it is the focused pane of the active workspace and tab; a click focuses the workspace, the tab and that pane. Repeated notifications for the same terminal within 2 seconds are coalesced, and a needs-you notification is retracted when the state changes. macOS asks for permission on first launch.
 
 Disable them with:
 
