@@ -16,6 +16,9 @@ struct WorkspaceTabBar: View {
             NewTabButton(viewModel: viewModel)
                 .layoutPriority(1)
 
+            SplitTerminalButton(viewModel: viewModel)
+                .layoutPriority(1)
+
             Spacer(minLength: 0)
         }
         .frame(height: WorkspaceTabPill.height)
@@ -50,5 +53,34 @@ private struct NewTabButton: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityLabel("New Terminal")
+    }
+}
+
+private struct SplitTerminalButton: View {
+    @ObservedObject var viewModel: WorkspaceTitlebarViewModel
+
+    @State private var isHovering = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let palette = WorkspaceTitlebarPalette(colorScheme: colorScheme)
+
+        Button {
+            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            viewModel.splitTerminal(SplitTerminalDirection(modifiers: modifiers))
+        } label: {
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(palette.primaryText)
+                .frame(width: NewTabButton.size, height: NewTabButton.size)
+                .background(Circle().fill(isHovering && viewModel.canSplit ? palette.hoverButton : .clear))
+                .contentShape(Circle())
+                .opacity(viewModel.canSplit ? 1 : 0.4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.canSplit)
+        .onHover { isHovering = $0 }
+        .help(viewModel.splitTerminalTooltip)
+        .accessibilityLabel(viewModel.splitTerminalTooltip)
     }
 }

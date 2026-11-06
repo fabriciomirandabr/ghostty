@@ -428,6 +428,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             store: store,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fontSize: currentFontSize,
+            canSplit: focusedSurface?.surfaceModel != nil,
             activity: { $0.activityState },
             surfaceTitle: { Self.focusedSurface(of: $0)?.title ?? "" },
             surfacePwd: { Self.focusedSurface(of: $0)?.pwd }))
@@ -635,12 +636,23 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             closeTab: { [weak self] in self?.closeTab(id: $0) },
             renameTab: { [weak self] in self?.renameTab(id: $0, to: $1) },
             newTab: { [weak self] in self?.newTab(baseConfig: nil) },
+            splitTerminal: { [weak self] in self?.splitFocusedTerminal($0) },
             newWorkspace: { [weak self] in self?.newWorkspace(nil) },
             switchWorkspace: { [weak self] in self?.isSwitcherShowing = true },
             showAll: { [weak self] in self?.isOverviewShowing = true },
             setFontSize: { [weak self] in self?.setFontSize($0) },
             toggleOverview: { [weak self] in self?.toggleWorkspaceOverview(nil) },
             badgeHoverChanged: { [weak self] in self?.activityHoverChanged($0) })
+    }
+
+    func splitFocusedTerminal(_ direction: SplitTerminalDirection) {
+        guard let surface = focusedSurface?.surfaceModel else {
+            Ghostty.logger.debug("split terminal ignored: no focused surface")
+            return
+        }
+        if !surface.perform(action: direction.bindingAction) {
+            Ghostty.logger.warning("action failed action=\(direction.bindingAction, privacy: .public)")
+        }
     }
 
     func makeOverlayActions() -> WorkspaceOverlayActions {
@@ -708,6 +720,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     override func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         super.focusedSurfaceDidChange(to: to)
         recordFocusInSelectedTab()
+        scheduleChromeRefresh()
     }
 
     private func recordFocusInSelectedTab() {

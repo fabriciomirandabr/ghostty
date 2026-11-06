@@ -119,6 +119,66 @@ struct WorkspaceTitlebarViewModelTests {
         #expect(model.menuItems.allSatisfy { $0.shortcut == nil })
     }
 
+    private static func splitModel(
+        canSplit: Bool,
+        table: [String: KeyboardShortcut]
+    ) -> WorkspaceTitlebarViewModel {
+        let model = WorkspaceTitlebarViewModel(shortcut: { table[$0] })
+        let only = workspace("Default", isDefault: true)
+        model.apply(WorkspaceTitlebarSnapshot(
+            workspaces: [only],
+            selectedWorkspaceID: only.id,
+            canSplit: canSplit
+        ))
+        return model
+    }
+
+    private static let splitShortcuts: [String: KeyboardShortcut] = [
+        "new_split:right": KeyboardShortcut("d", modifiers: .command),
+        "new_split:down": KeyboardShortcut("d", modifiers: [.command, .shift]),
+    ]
+
+    @Test func splitDirectionFollowsOptionModifier() {
+        #expect(SplitTerminalDirection(modifiers: []) == .right)
+        #expect(SplitTerminalDirection(modifiers: [.command]) == .right)
+        #expect(SplitTerminalDirection(modifiers: [.option]) == .down)
+        #expect(SplitTerminalDirection(modifiers: [.option, .shift]) == .down)
+        #expect(SplitTerminalDirection.right.bindingAction == "new_split:right")
+        #expect(SplitTerminalDirection.down.bindingAction == "new_split:down")
+    }
+
+    @Test func splitTerminalForwardsDirection() {
+        let model = Self.splitModel(canSplit: true, table: [:])
+        var received: [SplitTerminalDirection] = []
+        model.actions.splitTerminal = { received.append($0) }
+
+        model.splitTerminal(SplitTerminalDirection(modifiers: []))
+        model.splitTerminal(SplitTerminalDirection(modifiers: [.option]))
+
+        #expect(received == [.right, .down])
+    }
+
+    @Test func splitTerminalIgnoredWithoutFocusedSurface() {
+        let model = Self.splitModel(canSplit: false, table: [:])
+        var received: [SplitTerminalDirection] = []
+        model.actions.splitTerminal = { received.append($0) }
+
+        model.splitTerminal(.right)
+
+        #expect(model.canSplit == false)
+        #expect(received.isEmpty)
+    }
+
+    @Test func splitTerminalTooltipShowsBothShortcuts() {
+        let model = Self.splitModel(canSplit: true, table: Self.splitShortcuts)
+        #expect(model.splitTerminalTooltip == "Split Terminal (⌘D). Option-click: Split Down (⇧⌘D)")
+    }
+
+    @Test func splitTerminalTooltipWithoutBindings() {
+        let model = Self.splitModel(canSplit: true, table: [:])
+        #expect(model.splitTerminalTooltip == "Split Terminal. Option-click: Split Down")
+    }
+
     @Test func closeItemDisabledOnDefault() {
         let workspaces = [Self.workspace("Default", isDefault: true), Self.workspace("api")]
 

@@ -24,6 +24,23 @@ struct WorkspaceTitlebarSnapshot: Equatable {
     var selectedTabID: UUID?
     var badge = WorkspaceActivityAggregator.Summary(runningCount: 0, needsAttention: false)
     var fontSize: Int?
+    var canSplit = false
+}
+
+enum SplitTerminalDirection: Equatable {
+    case right
+    case down
+
+    init(modifiers: NSEvent.ModifierFlags) {
+        self = modifiers.contains(.option) ? .down : .right
+    }
+
+    var bindingAction: String {
+        switch self {
+        case .right: "new_split:right"
+        case .down: "new_split:down"
+        }
+    }
 }
 
 extension WorkspaceTitlebarSnapshot {
@@ -32,6 +49,7 @@ extension WorkspaceTitlebarSnapshot {
         store: WorkspaceStore<ViewType>,
         homeDirectory: URL,
         fontSize: Int? = nil,
+        canSplit: Bool = false,
         activity: (ViewType) -> SurfaceActivityState,
         surfaceTitle: (WorkspaceTab<ViewType>) -> String,
         surfacePwd: (WorkspaceTab<ViewType>) -> String? = { _ in nil }
@@ -70,7 +88,8 @@ extension WorkspaceTitlebarSnapshot {
             tabs: tabs,
             selectedTabID: store.selectedWorkspace?.selectedTabID,
             badge: WorkspaceActivityAggregator.summary(store.workspaces.flatMap(tabStates)),
-            fontSize: fontSize
+            fontSize: fontSize,
+            canSplit: canSplit
         )
     }
 }
@@ -115,6 +134,7 @@ struct WorkspaceTitlebarActions {
     var closeTab: (UUID) -> Void = { _ in }
     var renameTab: (UUID, String) -> Void = { _, _ in }
     var newTab: () -> Void = {}
+    var splitTerminal: (SplitTerminalDirection) -> Void = { _ in }
     var newWorkspace: () -> Void = {}
     var switchWorkspace: () -> Void = {}
     var showAll: () -> Void = {}
@@ -336,6 +356,19 @@ final class WorkspaceTitlebarViewModel: ObservableObject {
 
     func newTab() {
         actions.newTab()
+    }
+
+    var canSplit: Bool { snapshot.canSplit }
+
+    var splitTerminalTooltip: String {
+        let right = shortcutText(SplitTerminalDirection.right.bindingAction).map { " (\($0))" } ?? ""
+        let down = shortcutText(SplitTerminalDirection.down.bindingAction).map { " (\($0))" } ?? ""
+        return "Split Terminal\(right). Option-click: Split Down\(down)"
+    }
+
+    func splitTerminal(_ direction: SplitTerminalDirection) {
+        guard snapshot.canSplit else { return }
+        actions.splitTerminal(direction)
     }
 
     func badgeTapped() {

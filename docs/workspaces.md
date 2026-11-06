@@ -52,13 +52,34 @@ Every window has a workspace called `Default`, first in the list. It cannot be c
 
 ### Tabs
 
-The tab bar shows one pill per tab of the active workspace: a circle state indicator on the left, the name, and an x on hover or when active. The `+` after the last pill opens a new terminal.
+The tab bar shows one pill per tab of the active workspace: a circle state indicator on the left (no digit), the name, and an x on hover or when active. The `+` after the last pill opens a new terminal. The split button right after it splits the focused terminal of the selected tab: a click splits right (`new_split:right`) and an Option-click splits down (`new_split:down`), the same path as `Cmd+D` and `Cmd+Shift+D`. Its tooltip reads `Split Terminal` and `Option-click: Split Down`, each followed by the shortcut from your config when the action has one. With no focused terminal the click does nothing.
 
 ![Tab bar](images/workspaces/tab-bar.png)
 
 ![Renaming a tab](images/workspaces/rename.png)
 
 Rename a tab with `F2` (action `prompt_tab_title`) or a double click. An inline field appears, `Enter` applies the name (40 characters maximum), `Esc` cancels. Names persist.
+
+### Context menu
+
+Right-click (or Control-click) a terminal to open its menu. In a workspace window the items are, in order:
+
+1. New Terminal (`new_tab`)
+2. Split Terminal, Split Down, Split Left, Split Up
+3. Copy, Copy as HTML, Paste, Select All
+4. Clear (`clear_screen`), Kill Terminal (`close_surface`, with the usual confirmation)
+5. Reset Terminal, Toggle Terminal Inspector, Terminal Read-only
+6. Rename Terminal… (`prompt_tab_title`, inline rename), Change Terminal Title…
+
+Copy and Copy as HTML are shown disabled until text is selected. Copy as HTML puts `text/html` on the clipboard (`copy_to_clipboard:html`). Paste follows the same image rule as `Cmd+V` (see [Pasting images](#pasting-images)). Terminal Read-only is checked while the terminal is read-only.
+
+The shortcut shown next to an item is the keybind from your config for that action, never a fixed string. An action with no keybind, or one that only applies when it can run (`performable`), shows no shortcut. `Cmd+K` is the workspace switcher by default, so Clear shows no shortcut unless you bind `clear_screen` yourself:
+
+```
+keybind = super+k=clear_screen
+```
+
+Only workspace windows get this menu. Other windows, the quick terminal included, keep the upstream menu unchanged: Copy (only with a selection), Paste, the four splits, Close Split, Reset Terminal, Toggle Terminal Inspector, Terminal Read-only, Change Tab Title... and Change Terminal Title.... The configured shortcuts are shown there as well. Control-click with a captured mouse and `right-click-action` behave as in upstream.
 
 ### Workspace menu
 
@@ -88,20 +109,22 @@ Inactive workspaces keep their processes alive and keep updating the badge.
 
 ### Activity badge
 
-The badge at the right of the title bar counts the running terminals across the window. The badge is a circle with a dark fill and a white digit or grid icon in dark mode, and a light fill with a dark digit in light mode. The fill is the same whether or not anything runs. While the count is above zero a thin static ring surrounds the badge at 60% opacity: white in dark mode and dark ink in light mode, or yellow in dark mode and dark amber in light mode when a terminal needs you. Nothing animates. An orange dot appears when a terminal needs you.
+The badge at the right of the title bar summarizes the activity of the whole window. It is a circle with a dark fill and white text in dark mode, and the mirror in light mode (light fill, dark text). The fill is the same whether or not anything runs. Nothing animates.
 
 Terminal states:
 
-- running: blue
-- needs you: yellow
-- done: white, kept for 10 seconds, then idle
-- idle
+- running: a static thin ring around the badge. The badge shows the count of running terminals.
+- needs you: the digit and the ring turn amber (`0xF5D90A` in dark mode, `0x8A5A00` in light mode).
+- done: a check, kept for 10 seconds, then idle.
+- idle: a grid icon in the bar and nothing in a tab row.
 
 Aggregation priority: needs you, running, done, idle.
 
+The count appears only where the view is about workspaces: the bar badge, the workspace cards, the quick switcher and the workspace menu. A tab row is one terminal, so it shows the state indicator with no digit.
+
 ### Activity popover
 
-Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (no digit, since a row is one terminal: a static ring when running, a yellow dot and a yellow ring when it needs you, a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
+Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (no digit, since a row is one terminal: a static ring when running, an amber ring when it needs you, a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
 
 ![Activity popover](images/workspaces/activity-popover.png)
 
@@ -324,6 +347,7 @@ SwiftPM can hang while resolving Sparkle if the login keychain is locked. Unlock
 
 - `macos/Sources/Features/Workspaces/` holds the model, title bar, overlays, activity tracking and notifier.
 - New `macos-titlebar-style` value `workspaces`, which is the default in this fork (upstream: `transparent`).
+- Terminal context menu with workspace vocabulary and config-driven shortcuts, and a split button in the tab bar, in workspace windows only (`SurfaceContextMenu`, `WorkspaceTabBar.swift`).
 - Handler and app plumbing for the existing OSC 7501 parser (`src/terminal/osc/parsers/program_status.zig`): `src/termio/stream_handler.zig`, the `program_status` action and the macOS activity tracking.
 - New `command_started` action from `OSC 133;C` into the app.
 - Eight new keybind actions (`new_workspace`, `close_workspace`, `goto_workspace`, `previous_workspace`, `next_workspace`, `toggle_workspace_overview`, `toggle_workspace_switcher`, `toggle_activity_popover`), all with command palette entries except `goto_workspace`.

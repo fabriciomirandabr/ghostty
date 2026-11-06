@@ -1706,45 +1706,44 @@ extension Ghostty {
                 return nil
             }
 
-            let menu = NSMenu()
+            let context = SurfaceContextMenu.Context(
+                hasSelection: accessibilitySelectedText()?.isEmpty == false,
+                isReadonly: readonly,
+                isWorkspaceWindow: WorkspaceTerminalController.isWorkspaceSurface(self))
+            let config = (NSApp.delegate as? AppDelegate)?.ghostty.config
+            return SurfaceContextMenu.menu(from: SurfaceContextMenu.entries(
+                context: context,
+                shortcut: { config?.keyboardShortcut(for: $0) }))
+        }
 
-            // We just use a floating var so we can easily setup metadata on each item
-            // in a row without storing it all.
-            var item: NSMenuItem
-
-            // If we have a selection, add copy
-            if let text = self.accessibilitySelectedText(), text.count > 0 {
-                menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+        private func performBindingAction(_ action: String) {
+            if surfaceModel?.perform(action: action) != true {
+                AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
             }
-            menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        }
 
-            menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Split Right", action: #selector(splitRight(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Left", action: #selector(splitLeft(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Down", action: #selector(splitDown(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
-            menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Close Split", action: #selector(closeSurface(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "xmark.rectangle")
+        private func performContextMenuAction(_ selector: Selector) {
+            guard let action = SurfaceContextMenu.dispatchedActions[selector] else {
+                AppDelegate.logger.warning("context menu action missing selector=\(NSStringFromSelector(selector), privacy: .public)")
+                return
+            }
+            performBindingAction(action)
+        }
 
-            menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise")
-            item = menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "scope")
-            item = menu.addItem(withTitle: "Terminal Read-only", action: #selector(toggleReadonly(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "eye.fill")
-            item.state = readonly ? .on : .off
-            menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Change Tab Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
-            item.setImageIfDesired(systemSymbolName: "pencil.line")
-            item = menu.addItem(withTitle: "Change Terminal Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+        @IBAction func newTerminalFromContextMenu(_ sender: Any?) {
+            performContextMenuAction(#selector(newTerminalFromContextMenu(_:)))
+        }
 
-            return menu
+        @IBAction func copyAsHTMLFromContextMenu(_ sender: Any?) {
+            performContextMenuAction(#selector(copyAsHTMLFromContextMenu(_:)))
+        }
+
+        @IBAction func clearScreenFromContextMenu(_ sender: Any?) {
+            performContextMenuAction(#selector(clearScreenFromContextMenu(_:)))
+        }
+
+        @IBAction func renameTerminalFromContextMenu(_ sender: Any?) {
+            performContextMenuAction(#selector(renameTerminalFromContextMenu(_:)))
         }
 
         // MARK: Menu Handlers
@@ -2420,7 +2419,7 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             item.state = readonly ? .on : .off
             return true
 
-        case #selector(copy(_:)):
+        case #selector(copy(_:)), #selector(copyAsHTMLFromContextMenu(_:)):
             // We only enable copy menu item when there're actual selected text
             if let text = self.accessibilitySelectedText(), text.count > 0 {
                 return true
