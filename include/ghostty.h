@@ -967,6 +967,7 @@ typedef struct {
   const char* id;
   const char* title;
   const char* msg;
+  const char* GHOSTTY_NULLABLE resume;
 } ghostty_action_program_status_s;
 
 // apprt.action.StartSearch.C

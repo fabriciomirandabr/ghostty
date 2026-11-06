@@ -194,5 +194,6 @@ extension ProgramStatusReport {
         self.title = title.isEmpty ? nil : title
         let message = String(cString: c.msg)
         self.message = message.isEmpty ? nil : message
+        self.resume = c.resume.map { String(cString: $0) }
     }
 }

@@ -25,6 +25,10 @@ struct WorkspaceSummary: Identifiable, Equatable {
     var state: SurfaceActivityState
     var selectedTabID: UUID
     var tabs: [WorkspaceTabSummary]
+
+    var runningTabCount: Int {
+        tabs.filter { $0.state == .running }.count
+    }
 }
 
 struct WorkspaceOverlaySnapshot: Equatable {

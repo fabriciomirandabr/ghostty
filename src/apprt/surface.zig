@@ -66,6 +66,7 @@ pub const Message = union(enum) {
         id: [terminal.osc.program_status.max_id_bytes:0]u8,
         title: [127:0]u8,
         msg: [255:0]u8,
+        @"resume": ?[terminal.osc.program_status.max_resume_bytes:0]u8,
 
         pub fn init(report: terminal.osc.program_status.Report) ProgramStatus {
             const program_status = terminal.osc.program_status;
@@ -88,6 +89,13 @@ pub const Message = union(enum) {
             var msg: std.Io.Writer = .fixed(&msg_buf);
             report.writeText(.msg, &msg) catch unreachable;
             DesktopNotification.copyUtf8Z(result.msg.len, &result.msg, msg.buffered());
+
+            result.@"resume" = null;
+            if (report.readOption(.@"resume")) |value| {
+                var buf: [program_status.max_resume_bytes:0]u8 = undefined;
+                DesktopNotification.copyUtf8Z(buf.len, &buf, value);
+                result.@"resume" = buf;
+            }
             return result;
         }
     };
@@ -378,6 +386,35 @@ test "program_status message carries every field of a report" {
     try testing.expectEqualStrings("a/b", std.mem.sliceTo(&msg.id, 0));
     try testing.expectEqualStrings("Plan", std.mem.sliceTo(&msg.title, 0));
     try testing.expectEqualStrings("Apply?", std.mem.sliceTo(&msg.msg, 0));
+    try testing.expect(msg.@"resume" == null);
+}
+
+test "program_status message copies resume" {
+    const testing = std.testing;
+
+    var p: terminal.osc.Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=clear:id=resume:resume=claude/abc-123");
+    const set: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expectEqualStrings("claude/abc-123", std.mem.sliceTo(&set.@"resume".?, 0));
+
+    p.reset();
+    p.nextSlice("7501;state=clear:id=resume:resume=");
+    const cleared: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expectEqualStrings("", std.mem.sliceTo(&cleared.@"resume".?, 0));
+
+    p.reset();
+    p.nextSlice("7501;state=clear:id=resume");
+    const absent: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expect(absent.@"resume" == null);
+
+    p.reset();
+    const full: [terminal.osc.program_status.max_resume_bytes]u8 = @splat('a');
+    p.nextSlice("7501;state=idle:resume=");
+    p.nextSlice(&full);
+    const longest: Message.ProgramStatus = .init(p.end('\x1b').?.program_status.report);
+    try testing.expectEqualStrings(&full, std.mem.sliceTo(&longest.@"resume".?, 0));
 }
 
 test "program_status message for a bare state and an oversized message" {

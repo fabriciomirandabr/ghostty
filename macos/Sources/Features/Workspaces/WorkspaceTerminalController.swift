@@ -65,6 +65,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     private var menuCancellable: AnyCancellable?
     private var renameCancellable: AnyCancellable?
     private var activityCancellable: AnyCancellable?
+    private var resumeCancellable: AnyCancellable?
     private var jobCancellables: [AnyCancellable] = []
     private lazy var jobNotifier = WorkspaceJobNotifier(
         sink: WorkspaceJobNotificationCenterSink(),
@@ -75,6 +76,11 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         }
     )
     private var chromeRefreshPending = false
+    private lazy var chromeThrottle = WorkspaceChromeRefreshThrottle { [weak self] in
+        self?.refreshChrome()
+    }
+    private var persistGate = WorkspacePersistGate()
+    private var powerCancellable: AnyCancellable?
     private var popoverHoverItem: DispatchWorkItem?
     private var snapshotTimer: Timer?
     private var escapeMonitor: Any?
@@ -221,10 +227,19 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
 
         guard let persisted = load(ghostty.config.windowSaveState != "never") else { return nil }
 
-        let state = persisted.makeWorkspacesState { directory in
-            SplitTree(view: Ghostty.SurfaceView(
+        let resumeEnabled = ghostty.config.workspaceResumePrograms
+        let state = persisted.makeWorkspacesState { directory, resume -> SplitTree<Ghostty.SurfaceView> in
+            let view = Ghostty.SurfaceView(
                 app,
-                baseConfig: WorkspaceSurfaceConfiguration.make(base: nil, directory: directory)))
+                baseConfig: WorkspaceSurfaceConfiguration.make(
+                    base: nil,
+                    directory: directory,
+                    resume: resume,
+                    enabled: resumeEnabled))
+            if let seeded = ProgramResume.restored(resume, directoryExists: true, enabled: resumeEnabled) {
+                view.seedProgramResume(seeded)
+            }
+            return SplitTree(view: view)
         }
         Ghostty.logger.info("restoring workspaces from file: \(state.workspaces.count, privacy: .public) workspaces")
         return state
@@ -251,11 +266,24 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     }
 
     private func persistedState() -> WorkspacePersistedState {
-        WorkspacePersistedState(store: store, directory: { $0.pwd })
+        let resumeEnabled = ghostty.config.workspaceResumePrograms
+        return WorkspacePersistedState(
+            store: store,
+            directory: { $0.pwd },
+            resume: { resumeEnabled ? $0.programResume : nil })
     }
 
-    private func schedulePersist() {
-        persistence.stateDidChange(persistedState(), from: self, enabled: persistenceEnabled)
+    private func schedulePersistIfChanged() {
+        persistGate.persistIfNeeded(
+            persistedState(),
+            enabled: persistenceEnabled,
+            owner: self,
+            persistence: persistence)
+    }
+
+    func persistenceRoleDidPass() {
+        persistGate.reset()
+        chromeThrottle.request()
     }
 
     func persistNow() {
@@ -383,6 +411,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
 
     private func refreshChrome() {
         chromeRefreshPending = false
+        chromeThrottle.noteRefreshed()
 
         let surfaces = store.allSurfaces
         let ids = surfaces.map(\.id)
@@ -390,7 +419,9 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             observeJobActivity(surfaces, previousIDs: observedSurfaceIDs)
             observedSurfaceIDs = ids
             activityCancellable = Publishers.MergeMany(surfaces.map(Self.changes(of:)))
-                .sink { [weak self] _ in self?.scheduleChromeRefresh() }
+                .sink { [weak self] _ in self?.chromeThrottle.request() }
+            resumeCancellable = Publishers.MergeMany(surfaces.map(Self.resumeChanges(of:)))
+                .sink { [weak self] _ in self?.invalidateRestorableState() }
         }
 
         titlebarViewModel.apply(WorkspaceTitlebarSnapshot.make(
@@ -406,7 +437,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             overlaySnapshot = snapshot
         }
 
-        schedulePersist()
+        schedulePersistIfChanged()
     }
 
     private func observeJobActivity(_ surfaces: [Ghostty.SurfaceView], previousIDs: [UUID]) {
@@ -469,12 +500,18 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     }
 
     private static func changes(of surface: Ghostty.SurfaceView) -> AnyPublisher<Void, Never> {
-        Publishers.Merge4(
-            surface.$activityState.dropFirst().map { _ in () },
-            surface.$title.dropFirst().map { _ in () },
-            surface.$lastCommand.dropFirst().map { _ in () },
-            surface.$pwd.dropFirst().map { _ in () }
+        Publishers.Merge(
+            WorkspaceSurfaceChanges.merged(
+                activityState: surface.$activityState,
+                title: surface.$title,
+                lastCommand: surface.$lastCommand,
+                pwd: surface.$pwd),
+            resumeChanges(of: surface)
         ).eraseToAnyPublisher()
+    }
+
+    private static func resumeChanges(of surface: Ghostty.SurfaceView) -> AnyPublisher<Void, Never> {
+        surface.$programResume.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher()
     }
 
     private static func focusedSurface(of tab: WorkspaceTab<Ghostty.SurfaceView>) -> Ghostty.SurfaceView? {
@@ -483,6 +520,15 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     }
 
     private func bindChrome() {
+        powerCancellable = WorkspacePowerMonitor.shared.$mode
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] mode in
+                guard let self, self.snapshotTimer != nil else { return }
+                self.stopSnapshotTimer()
+                self.scheduleSnapshotTimer(interval: mode.snapshotInterval)
+            }
+
         overlayCancellable = overlayState.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.overlaysDidChange() }
         }
@@ -530,9 +576,21 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         if overlayState.isOpen(.overview) {
             startSnapshotTimer()
         } else {
-            snapshotTimer?.invalidate()
-            snapshotTimer = nil
+            stopSnapshotTimer()
         }
+    }
+
+    private func stopSnapshotTimer() {
+        snapshotTimer?.invalidate()
+        snapshotTimer = nil
+    }
+
+    private var windowAllowsSnapshotCapture: Bool {
+        guard let window else { return false }
+        return WorkspaceSnapshotCapture.isAllowed(
+            isKeyWindow: window.isKeyWindow,
+            isVisible: window.isVisible,
+            isOccluded: !window.occlusionState.contains(.visible))
     }
 
     private func returnFocusToTerminal() {
@@ -545,11 +603,18 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     private func startSnapshotTimer() {
         captureSelectedTabSnapshot()
         guard snapshotTimer == nil else { return }
+        scheduleSnapshotTimer(interval: WorkspacePowerMonitor.shared.mode.snapshotInterval)
+    }
+
+    private func scheduleSnapshotTimer(interval: TimeInterval) {
         snapshotTimer = Timer.scheduledTimer(
-            withTimeInterval: WorkspaceThumbnailView.refreshInterval,
+            withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.captureSelectedTabSnapshot() }
+            MainActor.assumeIsolated {
+                guard let self, self.windowAllowsSnapshotCapture else { return }
+                self.captureSelectedTabSnapshot()
+            }
         }
     }
 
@@ -558,8 +623,8 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
 
         let surfaces = Array(tab.tree)
         let target = surfaces.first { $0.id == tab.focusedSurfaceID } ?? surfaces.first
-        guard let target, target.window != nil, let image = target.asImage else { return }
-        store.snapshots.store(image, for: tab.id)
+        guard let target, let window = target.window, let image = target.asImage else { return }
+        store.snapshots.storeCapture(image, for: tab.id, screenScale: window.backingScaleFactor)
     }
 
     private func makeTitlebarActions() -> WorkspaceTitlebarActions {
@@ -883,8 +948,8 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     }
 
     override func windowWillClose(_ notification: Notification) {
-        snapshotTimer?.invalidate()
-        snapshotTimer = nil
+        stopSnapshotTimer()
+        store.snapshots.clear()
         popoverHoverItem?.cancel()
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
@@ -895,6 +960,7 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         }
         persistNow()
         persistence.unregister(self)
+        (persistence.primaryWindow as? WorkspaceTerminalController)?.persistenceRoleDidPass()
         super.windowWillClose(notification)
     }
 

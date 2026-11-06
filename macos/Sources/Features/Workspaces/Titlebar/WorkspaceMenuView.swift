@@ -99,8 +99,11 @@ private struct WorkspaceMenuWorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            StatusIndicatorView(state: item.state, style: .compact, diameter: 8)
-                .frame(width: 8, height: 8)
+            StatusIndicatorView(
+                state: item.state,
+                diameter: 14,
+                badgeText: StatusIndicatorView.badgeText(for: item.state, runningCount: item.runningCount)
+            )
 
             Text(item.title)
                 .workspaceTitlebarFont(size: 12.5, weight: item.isActive ? .semibold : .regular)

@@ -143,6 +143,7 @@ struct WorkspaceMenuItem: Identifiable, Equatable {
     var isActive = false
     var state: SurfaceActivityState = .idle
     var runningLabel: String?
+    var runningCount = 0
     var folder: String?
     var showsClose = false
 }
@@ -225,6 +226,7 @@ final class WorkspaceTitlebarViewModel: ObservableObject {
                 isActive: workspace.id == snapshot.selectedWorkspaceID,
                 state: workspace.state,
                 runningLabel: workspace.runningCount > 0 ? "\(workspace.runningCount) running" : nil,
+                runningCount: workspace.runningCount,
                 folder: workspace.folder,
                 showsClose: !workspace.isDefault
             )

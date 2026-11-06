@@ -1197,6 +1197,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                     .id = std.mem.sliceTo(&v.id, 0),
                     .title = std.mem.sliceTo(&v.title, 0),
                     .msg = std.mem.sliceTo(&v.msg, 0),
+                    .@"resume" = if (v.@"resume") |*value| std.mem.sliceTo(value, 0) else null,
                 },
             ) catch |err| {
                 log.warn("apprt failed to report program status err={}", .{err});

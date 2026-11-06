@@ -74,6 +74,55 @@ struct WorkspaceTerminalControllerTests {
         #expect(config.environmentVariables == ["KEY": "value"])
     }
 
+    private let sampleResume = ProgramResume(program: "claude", token: "0f8fad5b-d9cb-469f-a165-70867728950e")
+
+    @Test func restoredSurfaceGetsTheLaunchInput() {
+        let config = WorkspaceSurfaceConfiguration.make(
+            base: nil, directory: projectDirectory, resume: sampleResume, enabled: true)
+
+        #expect(config.initialInput == "claude --resume 0f8fad5b-d9cb-469f-a165-70867728950e\n")
+        #expect(config.workingDirectory == projectDirectory.path)
+    }
+
+    @Test func disabledConfigYieldsNoInitialInput() {
+        let config = WorkspaceSurfaceConfiguration.make(
+            base: nil, directory: projectDirectory, resume: sampleResume, enabled: false)
+
+        #expect(config.initialInput == nil)
+    }
+
+    @Test func restoredSurfaceWithoutResumeHasNoInitialInput() {
+        let config = WorkspaceSurfaceConfiguration.make(
+            base: nil, directory: projectDirectory, resume: nil, enabled: true)
+
+        #expect(config.initialInput == nil)
+    }
+
+    @Test func freshTabHasNoInitialInput() {
+        let config = WorkspaceSurfaceConfiguration.make(base: nil, directory: projectDirectory)
+        let fromWorkspace = WorkspaceSurfaceConfiguration.make(base: nil, workspace: makeWorkspace())
+
+        #expect(config.initialInput == nil)
+        #expect(fromWorkspace.initialInput == nil)
+    }
+
+    @Test func requestedTabKeepsItsOwnInitialInput() {
+        var base = Ghostty.SurfaceConfiguration()
+        base.initialInput = "echo requested\n"
+
+        let config = WorkspaceSurfaceConfiguration.make(base: base, directory: projectDirectory)
+
+        #expect(config.initialInput == "echo requested\n")
+    }
+
+    @Test func restoredSurfaceKeepsCommandAndWaitDefaults() {
+        let config = WorkspaceSurfaceConfiguration.make(
+            base: nil, directory: projectDirectory, resume: sampleResume, enabled: true)
+
+        #expect(config.command == nil)
+        #expect(config.waitAfterCommand == false)
+    }
+
     @Test func ownsSurfacesOfInactiveWorkspaces() throws {
         let store = WorkspaceFixtures.makeStore()
         let hidden = MockView()

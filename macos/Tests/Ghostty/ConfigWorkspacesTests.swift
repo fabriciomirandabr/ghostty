@@ -69,6 +69,14 @@ struct ConfigWorkspacesTests {
         #expect(try !TemporaryConfig("workspace-notifications = false").workspaceNotifications)
     }
 
+    @Test func resumeProgramsDefaultsToTrue() throws {
+        #expect(try TemporaryConfig("").workspaceResumePrograms)
+    }
+
+    @Test func resumeProgramsCanBeDisabled() throws {
+        #expect(try !TemporaryConfig("workspace-resume-programs = false").workspaceResumePrograms)
+    }
+
     @Test func defaultDirectoryResolvesToHomeWhenUnset() {
         #expect(WorkspaceDefaultDirectory.resolve(nil) == FileManager.default.homeDirectoryForCurrentUser)
         #expect(WorkspaceDefaultDirectory.resolve("") == FileManager.default.homeDirectoryForCurrentUser)

@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct WorkspaceThumbnailView: View {
-    static let refreshInterval: TimeInterval = 0.5
     static let fontSize: CGFloat = 5.5
 
     let tabID: UUID
@@ -9,8 +8,10 @@ struct WorkspaceThumbnailView: View {
     var background: Color
     var foreground: Color
 
+    @ObservedObject private var power = WorkspacePowerMonitor.shared
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: Self.refreshInterval)) { _ in
+        TimelineView(.periodic(from: .now, by: power.mode.thumbnailRefreshInterval)) { _ in
             content(WorkspaceThumbnailContent.resolve(
                 image: source.image(for: tabID),
                 text: source.text(for: tabID)

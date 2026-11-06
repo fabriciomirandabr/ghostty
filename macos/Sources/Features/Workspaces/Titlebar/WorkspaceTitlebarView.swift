@@ -15,19 +15,14 @@ struct WorkspaceTitlebarPalette {
     let separator: Color
     let renameBackground: Color
     let renameBorder: Color
-    let badgeBackground: Color
     let badgeHoverBackground: Color
-    let badgeText: Color
-    let badgeRing: Color
 
     init(colorScheme: ColorScheme) {
         func hex(_ value: UInt32, _ opacity: Double = 1) -> Color {
             WorkspaceStatusColors.color(hex: value, opacity: opacity)
         }
 
-        badgeBackground = hex(0x3A3A3A)
         badgeHoverBackground = hex(0x4A4A4A)
-        badgeText = hex(0xFFFFFF)
 
         switch colorScheme {
         case .dark:
@@ -45,7 +40,6 @@ struct WorkspaceTitlebarPalette {
             separator = hex(0x3A3A3A)
             renameBackground = hex(0x0F0F0F)
             renameBorder = hex(0xFFFFFF, 0.28)
-            badgeRing = hex(0xFFFFFF, 0.8)
         default:
             barBackground = hex(0xE9E9E9)
             barBorder = hex(0x000000, 0.08)
@@ -61,7 +55,6 @@ struct WorkspaceTitlebarPalette {
             separator = hex(0x000000, 0.12)
             renameBackground = hex(0xFFFFFF)
             renameBorder = hex(0x000000, 0.28)
-            badgeRing = hex(0x3A3A3A, 0.8)
         }
     }
 }

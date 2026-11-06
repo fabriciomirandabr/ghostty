@@ -6,6 +6,7 @@ struct WorkspaceTabPill: View {
     static let minWidth: CGFloat = 48
     static let horizontalPadding: CGFloat = 6
     static let indicatorSize: CGFloat = 20
+    static let badgeSize: CGFloat = 14
     static let itemSpacing: CGFloat = 8
     static let closeSize: CGFloat = 20
 
@@ -30,8 +31,12 @@ struct WorkspaceTabPill: View {
         let palette = WorkspaceTitlebarPalette(colorScheme: colorScheme)
 
         HStack(spacing: 0) {
-            StatusIndicatorView(state: tab.state, tabDiameter: Self.indicatorSize)
-                .frame(width: Self.indicatorSize, height: Self.indicatorSize)
+            StatusIndicatorView(
+                state: tab.state,
+                diameter: Self.badgeSize,
+                badgeText: StatusIndicatorView.badgeText(for: tab.state, runningCount: 1)
+            )
+            .frame(width: Self.indicatorSize, height: Self.indicatorSize)
 
             HStack(spacing: 0) {
                 titleText(palette: palette)

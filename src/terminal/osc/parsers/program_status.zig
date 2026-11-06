@@ -77,6 +77,8 @@ pub const max_title_bytes = 192;
 /// The longest `app` value.
 pub const max_app_bytes = 32;
 
+pub const max_resume_bytes = max_app_bytes + 1 + 64;
+
 /// The longest `id` value, the longest part between two slashes, and the
 /// most parts an id can have.
 pub const max_id_bytes = 128;
@@ -218,6 +220,7 @@ pub const Report = struct {
                 else => null,
             },
             .title, .msg => if (v.len > 0) v else null,
+            .@"resume" => v,
         };
     }
 
@@ -275,12 +278,13 @@ pub const Option = enum {
     app,
     title,
     msg,
+    @"resume",
 
     pub fn Type(comptime self: Option) type {
         return switch (self) {
             .kind => Kind,
             .progress => u8,
-            .id, .app, .title, .msg => []const u8,
+            .id, .app, .title, .msg, .@"resume" => []const u8,
         };
     }
 };
@@ -365,6 +369,7 @@ fn validate(data: []const u8) error{
         .{ "app", max_app_bytes },
         .{ "title", max_title_encoded_bytes },
         .{ "msg", max_msg_encoded_bytes },
+        .{ "resume", max_resume_bytes },
     }) |limit| {
         var it: kitty_metadata.ValueIterator(limit[0], null) = .init(data);
         while (it.next()) |v| if (v.len > limit[1]) return error.TooLong;
@@ -804,6 +809,147 @@ test "OSC 7501: discarded reports" {
         p.nextSlice(case[0]);
         try testing.expectEqual(case[1], p.end('\x1b') != null);
     }
+}
+
+test "OSC 7501: resume key is read raw" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=working:resume=claude/abc-123");
+    const report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqual(State.working, report.state);
+    try testing.expectEqualStrings("claude/abc-123", report.readOption(.@"resume").?);
+
+    p.reset();
+    p.nextSlice("7501;state=idle:resume=sh/-c");
+    try testing.expectEqualStrings(
+        "sh/-c",
+        p.end(0x07).?.program_status.report.readOption(.@"resume").?,
+    );
+}
+
+test "OSC 7501: empty resume is present and empty" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=idle:resume=");
+    var report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqualStrings("", report.readOption(.@"resume").?);
+
+    p.reset();
+    p.nextSlice("7501;state=idle:resume=:app=cargo");
+    report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqualStrings("", report.readOption(.@"resume").?);
+    try testing.expectEqualStrings("cargo", report.readOption(.app).?);
+
+    p.reset();
+    p.nextSlice("7501;state=idle:app=cargo");
+    report = p.end('\x1b').?.program_status.report;
+    try testing.expect(report.readOption(.@"resume") == null);
+}
+
+test "OSC 7501: resume too long discards the report" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const fit: [max_resume_bytes]u8 = @splat('a');
+    p.nextSlice("7501;state=working:resume=");
+    p.nextSlice(&fit);
+    const report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqual(State.working, report.state);
+    try testing.expectEqualStrings(&fit, report.readOption(.@"resume").?);
+
+    const over: [max_resume_bytes + 1]u8 = @splat('a');
+    p.reset();
+    p.nextSlice("7501;state=working:resume=");
+    p.nextSlice(&over);
+    try testing.expect(p.end('\x1b') == null);
+
+    p.reset();
+    p.nextSlice("7501;state=working:resume=");
+    p.nextSlice(&over);
+    p.nextSlice(":resume=claude/ok");
+    try testing.expect(p.end('\x1b') == null);
+
+    p.reset();
+    p.nextSlice("7501;state=working:resume=@");
+    p.nextSlice(over[1..]);
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC 7501: resume with bytes outside the alphabet is skipped" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const cases = [_][]const u8{
+        "7501;state=working:resume=claude/x;rm",
+        "7501;state=working:resume=claude/$(id)",
+        "7501;state=working:resume=claude/a%0Als",
+        "7501;state=working:resume=claude/a b",
+        "7501;state=working:resume=claude/a\x15b",
+        "7501;state=working:resume=claude/\xc3\xa9",
+    };
+    for (cases) |input| {
+        p.reset();
+        p.nextSlice(input);
+        const report = p.end('\x1b').?.program_status.report;
+        try testing.expectEqual(State.working, report.state);
+        try testing.expect(report.readOption(.@"resume") == null);
+    }
+
+    p.reset();
+    p.nextSlice("7501;state=working:resume=claude/ok:resume=claude/x;rm");
+    const report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqualStrings("claude/ok", report.readOption(.@"resume").?);
+}
+
+test "OSC 7501: resume on a clear report" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=clear:id=resume:resume=claude/abc-123");
+    var report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqual(State.clear, report.state);
+    try testing.expectEqualStrings("resume", report.readOption(.id).?);
+    try testing.expectEqualStrings("claude/abc-123", report.readOption(.@"resume").?);
+
+    p.reset();
+    p.nextSlice("7501;state=clear:id=resume:resume=");
+    report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqual(State.clear, report.state);
+    try testing.expectEqualStrings("", report.readOption(.@"resume").?);
+
+    p.reset();
+    p.nextSlice("7501;state=clear:resume=claude/abc");
+    report = p.end('\x1b').?.program_status.report;
+    try testing.expect(report.readOption(.id) == null);
+    try testing.expectEqualStrings("claude/abc", report.readOption(.@"resume").?);
+}
+
+test "OSC 7501: last resume wins" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    p.nextSlice("7501;state=idle:resume=claude/a:resume=claude/b");
+    var report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqualStrings("claude/b", report.readOption(.@"resume").?);
+
+    p.reset();
+    p.nextSlice("7501;state=idle:resume=claude/a:resume=");
+    report = p.end('\x1b').?.program_status.report;
+    try testing.expectEqualStrings("", report.readOption(.@"resume").?);
 }
 
 test "OSC 7501: no allocator" {

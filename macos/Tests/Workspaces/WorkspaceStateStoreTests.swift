@@ -22,9 +22,18 @@ struct WorkspaceStateStoreTests {
         return (store, docsView)
     }
 
-    static func makePersisted(from store: MockStore, pwdOf view: MockView) -> WorkspacePersistedState {
-        WorkspacePersistedState(store: store, directory: { $0 === view ? "/tmp/ws-docs/notes" : nil })
+    static func makePersisted(
+        from store: MockStore,
+        pwdOf view: MockView,
+        resume: (MockView) -> ProgramResume? = { _ in nil }
+    ) -> WorkspacePersistedState {
+        WorkspacePersistedState(
+            store: store,
+            directory: { $0 === view ? "/tmp/ws-docs/notes" : nil },
+            resume: resume)
     }
+
+    static let sampleResume = ProgramResume(program: "claude", token: "0f8fad5b-d9cb-469f-a165-70867728950e")
 
     @Test func persistedStateCapturesWorkspacesTabsAndSelection() throws {
         let (store, docsView) = try Self.makePopulatedStore()
@@ -63,7 +72,7 @@ struct WorkspaceStateStoreTests {
         var created: [URL] = []
         let state = loaded.makeWorkspacesState(
             isDirectory: { _ in true },
-            makeTree: { directory -> SplitTree<MockView> in
+            makeTree: { directory, _ -> SplitTree<MockView> in
                 created.append(directory)
                 return SplitTree(view: MockView())
             })
@@ -92,6 +101,196 @@ struct WorkspaceStateStoreTests {
         #expect(throws: WorkspaceStateStoreError.newerVersion(newer.version)) {
             try fileStore.load()
         }
+    }
+
+    @Test func persistedStateIsVersionTwo() throws {
+        #expect(WorkspacePersistedState.currentVersion == 2)
+        let (store, docsView) = try Self.makePopulatedStore()
+        #expect(Self.makePersisted(from: store, pwdOf: docsView).version == 2)
+    }
+
+    @Test func persistedTabsCarryTheResumeOfTheFocusedSurface() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let other = try #require(store.workspaces[1].tabs[0].tree.first { $0 !== docsView })
+        let persisted = Self.makePersisted(from: store, pwdOf: docsView) { view in
+            if view === docsView { return Self.sampleResume }
+            if view === other { return ProgramResume(program: "claude", token: "1b4e28ba-2fa1-41d2-883f-0016d3cca427") }
+            return nil
+        }
+
+        let tabs = persisted.workspaces[1].tabs
+        #expect(tabs[0].resumeProgram == "claude")
+        #expect(tabs[0].resumeToken == "0f8fad5b-d9cb-469f-a165-70867728950e")
+        #expect(tabs[1].resumeProgram == nil)
+        #expect(tabs[1].resumeToken == nil)
+    }
+
+    @Test func disabledConfigPersistsNoResume() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let persisted = Self.makePersisted(from: store, pwdOf: docsView, resume: { _ in nil })
+        let data = try JSONEncoder().encode(persisted)
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        #expect(persisted.workspaces.flatMap(\.tabs).allSatisfy { $0.resumeProgram == nil && $0.resumeToken == nil })
+        #expect(!json.contains("resume"))
+    }
+
+    @Test func persistedTabsCarryNoResumeCommand() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let persisted = Self.makePersisted(from: store, pwdOf: docsView) { _ in Self.sampleResume }
+        let data = try JSONEncoder().encode(persisted)
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        #expect(json.contains("\"resumeToken\":\"0f8fad5b-d9cb-469f-a165-70867728950e\""))
+        #expect(!json.contains("--resume"))
+    }
+
+    @Test func resumeSurvivesTheFileRoundTrip() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let persisted = Self.makePersisted(from: store, pwdOf: docsView) { $0 === docsView ? Self.sampleResume : nil }
+        let fileStore = WorkspaceStateStore(fileURL: Self.makeTemporaryFileURL())
+
+        try fileStore.save(persisted)
+        let loaded = try #require(try fileStore.load())
+
+        #expect(loaded == persisted)
+        #expect(loaded.workspaces[1].tabs[0].resumeToken == "0f8fad5b-d9cb-469f-a165-70867728950e")
+    }
+
+    @Test func aVersionOneFileLoadsWithoutResume() throws {
+        let id = UUID().uuidString
+        let tab = UUID().uuidString
+        let json = """
+        {"version":1,"selectedWorkspace":"\(id)","workspaces":[{"id":"\(id)","name":"Default","directory":"/tmp",\
+        "isDefault":true,"selectedTab":"\(tab)","tabs":[{"id":"\(tab)","directory":"/tmp"}]}]}
+        """
+        let url = Self.makeTemporaryFileURL()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+
+        let loaded = try #require(try WorkspaceStateStore(fileURL: url).load())
+
+        #expect(loaded.version == 1)
+        #expect(loaded.workspaces[0].tabs[0].resumeProgram == nil)
+        #expect(loaded.workspaces[0].tabs[0].resumeToken == nil)
+    }
+
+    @Test(arguments: [
+        ("sh", "0f8fad5b-d9cb-469f-a165-70867728950e"),
+        ("claude", "a;b"),
+        ("claude", "$(id)"),
+        ("claude", ""),
+        ("claude", "-x"),
+        ("claude", "--dangerously-skip-permissions"),
+        ("claude", "0F8FAD5B-D9CB-469F-A165-70867728950E"),
+        ("claude", "0f8fad5b-d9cb-469f-a165-70867728950"),
+        ("claude", "0f8fad5b-d9cb-469f-a165-70867728950ee"),
+        ("claude", String(repeating: "a", count: 10_240)),
+        ("Claude", "0f8fad5b-d9cb-469f-a165-70867728950e"),
+    ])
+    func sanitizedDropsInvalidResume(program: String, token: String) throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        var state = Self.makePersisted(from: store, pwdOf: docsView) { _ in Self.sampleResume }
+        state.workspaces[1].tabs[0].resumeProgram = program
+        state.workspaces[1].tabs[0].resumeToken = token
+
+        let clean = state.sanitized()
+
+        #expect(clean.workspaces[1].tabs[0].resumeProgram == nil)
+        #expect(clean.workspaces[1].tabs[0].resumeToken == nil)
+        #expect(clean.workspaces[1].tabs[1].resumeToken == "0f8fad5b-d9cb-469f-a165-70867728950e")
+    }
+
+    @Test func sanitizedDropsPartialResume() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        var state = Self.makePersisted(from: store, pwdOf: docsView)
+        state.workspaces[1].tabs[0].resumeProgram = "claude"
+        state.workspaces[1].tabs[1].resumeToken = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
+
+        let clean = state.sanitized()
+
+        #expect(clean.workspaces[1].tabs.allSatisfy { $0.resumeProgram == nil && $0.resumeToken == nil })
+    }
+
+    @Test func sanitizedKeepsValidResume() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let state = Self.makePersisted(from: store, pwdOf: docsView) { _ in Self.sampleResume }
+
+        #expect(state.sanitized() == state)
+    }
+
+    @Test(arguments: ["-x", "--dangerously-skip-permissions", "abc-123"])
+    func resolvedResumeRejectsAFileTokenThatIsNotASessionId(token: String) {
+        var tab = WorkspacePersistedTab(id: "t", titleOverride: nil, directory: "/tmp")
+        tab.resumeProgram = "claude"
+        tab.resumeToken = token
+
+        #expect(WorkspacePersistedState.resolvedResume(tab: tab, isDirectory: { _ in true }) == nil)
+
+        tab.resumeToken = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        #expect(WorkspacePersistedState.resolvedResume(tab: tab, isDirectory: { _ in true }) == Self.sampleResume)
+    }
+
+    @Test func resumeAloneIsNotStructural() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let base = Self.makePersisted(from: store, pwdOf: docsView)
+        var resumed = base
+        resumed.workspaces[1].tabs[0].resumeProgram = "claude"
+        resumed.workspaces[1].tabs[0].resumeToken = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        var moved = base
+        moved.workspaces[1].tabs[0].directory = "/tmp/elsewhere"
+
+        var renamed = base
+        renamed.workspaces[1].tabs[0].titleOverride = "renamed"
+
+        #expect(resumed.hasSameStructure(as: base))
+        #expect(moved.hasSameStructure(as: base))
+        #expect(!renamed.hasSameStructure(as: base))
+    }
+
+    @Test func aRestoredTabPersistsTheSameResumeOnItsFirstSnapshot() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let saved = Self.makePersisted(from: store, pwdOf: docsView) { $0 === docsView ? Self.sampleResume : nil }
+        var seeded: [UUID: ProgramResume] = [:]
+        let state = saved.makeWorkspacesState(
+            isDirectory: { _ in true },
+            makeTree: { _, resume -> SplitTree<MockView> in
+                let view = MockView()
+                if let resume { seeded[view.id] = resume }
+                return SplitTree(view: view)
+            })
+        let restored = MockStore(restoring: state, defaultDirectory: WorkspaceFixtures.home) {
+            WorkspaceFixtures.makeTab()
+        }
+
+        let again = WorkspacePersistedState(store: restored, directory: { _ in nil }, resume: { seeded[$0.id] })
+
+        #expect(again.workspaces.flatMap(\.tabs).map(\.resumeToken) == saved.workspaces.flatMap(\.tabs).map(\.resumeToken))
+        #expect(again.workspaces[1].tabs[0].resumeToken == Self.sampleResume?.token)
+    }
+
+    @Test func makeWorkspacesStatePassesResumeOnlyWhenTheTabDirectoryExists() throws {
+        let (store, docsView) = try Self.makePopulatedStore()
+        let persisted = Self.makePersisted(from: store, pwdOf: docsView) { $0 === docsView ? Self.sampleResume : nil }
+
+        var onlyWorkspaceFolder: [ProgramResume?] = []
+        _ = persisted.makeWorkspacesState(
+            isDirectory: { $0.path == "/tmp/ws-docs" },
+            makeTree: { _, resume -> SplitTree<MockView> in
+                onlyWorkspaceFolder.append(resume)
+                return SplitTree(view: MockView())
+            })
+        #expect(onlyWorkspaceFolder.allSatisfy { $0 == nil })
+
+        var tabFolderExists: [ProgramResume?] = []
+        _ = persisted.makeWorkspacesState(
+            isDirectory: { _ in true },
+            makeTree: { _, resume -> SplitTree<MockView> in
+                tabFolderExists.append(resume)
+                return SplitTree(view: MockView())
+            })
+        #expect(tabFolderExists.count == 3)
+        #expect(tabFolderExists.compactMap { $0 } == [try #require(Self.sampleResume)])
     }
 
     @Test func sanitizedDropsBadAndDuplicateIDsAndCapsTheLists() {

@@ -85,7 +85,11 @@ struct CloseWorkspaceConfirmationView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(confirmation.rows) { row in
                         HStack(spacing: 10) {
-                            StatusIndicatorView(state: row.state, style: .compact, diameter: 14)
+                            StatusIndicatorView(
+                                state: row.state,
+                                diameter: 16,
+                                badgeText: StatusIndicatorView.badgeText(for: row.state, runningCount: 1)
+                            )
                             Text("\(row.title) · \(row.suffix)")
                                 .font(.system(size: 12.5))
                                 .foregroundColor(WorkspaceOverlayPalette.menuText)

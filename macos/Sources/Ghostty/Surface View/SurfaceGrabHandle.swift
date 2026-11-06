@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 extension Ghostty {
@@ -14,6 +15,7 @@ extension Ghostty {
 
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
+        @State private var pointerInHoverRegion: Bool = false
 
         private var handleVisible: Bool {
             switch dragHandle {
@@ -47,13 +49,22 @@ extension Ghostty {
             // If we're hovering or actively dragging, always visible
             if isHovering || isDragging { return true }
 
-            // Require our mouse location to be within the top area of the
-            // surface.
-            guard let mouseLocation = surfaceView.mouseLocationInSurface else { return false }
-            return Self.isInHoverRegion(mouseLocation, in: surfaceView.bounds)
+            return pointerInHoverRegion
         }
 
         var body: some View {
+            handle.onReceive(
+                surfaceView.mouseLocationSubject
+                    .map { [weak surfaceView] location in
+                        guard let location, let surfaceView else { return false }
+                        return Self.isInHoverRegion(location, in: surfaceView.bounds)
+                    }
+                    .removeDuplicates()
+            ) { pointerInHoverRegion = $0 }
+        }
+
+        @ViewBuilder
+        private var handle: some View {
             if handleVisible {
                 ZStack {
                     SurfaceDragSource(

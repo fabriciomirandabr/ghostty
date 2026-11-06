@@ -313,6 +313,50 @@ struct WorkspacePersistenceTests {
         withExtendedLifetime(owner) {}
     }
 
+    @Test func aResumeChangeDoesNotRewriteANewerFileWhileHeld() throws {
+        let persistence = makePersistence()
+        var newer = try makeState(name: "From the future")
+        newer.version = WorkspacePersistedState.currentVersion + 1
+        try persistence.store.save(newer)
+        let owner = Owner()
+        let restored = try makeState(name: "Restored")
+
+        #expect(persistence.register(owner, origin: .restoredWorkspaces, state: restored))
+        var resumed = restored
+        resumed.workspaces[0].tabs[0].resumeProgram = "claude"
+        resumed.workspaces[0].tabs[0].resumeToken = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        persistence.stateDidChange(resumed, from: owner, enabled: true)
+        #expect(!persistence.store.hasPendingSave)
+        persistence.flush(resumed, from: owner, enabled: true)
+        #expect(throws: WorkspaceStateStoreError.newerVersion(newer.version)) {
+            try persistence.store.load()
+        }
+
+        var renamed = resumed
+        renamed.workspaces[1].name = "Renamed"
+        persistence.stateDidChange(renamed, from: owner, enabled: true)
+        #expect(persistence.store.hasPendingSave)
+
+        withExtendedLifetime(owner) {}
+    }
+
+    @Test func aResumeChangeIsWrittenWhenNoNewerFileIsHeld() throws {
+        let persistence = makePersistence()
+        let owner = Owner()
+        let restored = try makeState(name: "Restored")
+
+        #expect(persistence.register(owner, origin: .restoredWorkspaces, state: restored))
+        var resumed = restored
+        resumed.workspaces[0].tabs[0].resumeProgram = "claude"
+        resumed.workspaces[0].tabs[0].resumeToken = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        persistence.stateDidChange(resumed, from: owner, enabled: true)
+        #expect(persistence.store.hasPendingSave)
+        persistence.flush(resumed, from: owner, enabled: true)
+        #expect(try persistence.store.load() == resumed)
+
+        withExtendedLifetime(owner) {}
+    }
+
     @Test func aFreshWindowKeepsANewerFileThroughDirectoryReportsToo() throws {
         let persistence = makePersistence()
         var newer = try makeState(name: "From the future")

@@ -52,6 +52,7 @@ struct ActivityPopoverView: View {
     static let maxContentHeight: CGFloat = 428
     static let panelWidth: CGFloat = 220
     static let rowHeight: CGFloat = 28
+    static let badgeSize: CGFloat = 18
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -96,7 +97,11 @@ private struct ActivityPopoverRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                StatusIndicatorView(state: row.state, style: .compact, diameter: 16)
+                StatusIndicatorView(
+                    state: row.state,
+                    diameter: ActivityPopoverView.badgeSize,
+                    badgeText: StatusIndicatorView.badgeText(for: row.state, runningCount: 1)
+                )
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.title)

@@ -88,7 +88,7 @@ Inactive workspaces keep their processes alive and keep updating the badge.
 
 ### Activity badge
 
-The badge at the right of the title bar counts the running terminals across the window. A white ring spins while the count is above zero. An orange dot appears when a terminal needs you.
+The badge at the right of the title bar counts the running terminals across the window. The badge is a circle: dark with a light digit or grid icon when nothing runs; while the count is above zero it is white with a dark digit in dark mode and dark with a light digit in light mode, with no animation. An orange dot appears when a terminal needs you.
 
 Terminal states:
 
@@ -101,7 +101,7 @@ Aggregation priority: needs you, running, done, idle.
 
 ### Activity popover
 
-Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has the indicator, the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
+Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (white with a dark digit when running, yellow when it needs you, white with a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
 
 ![Activity popover](images/workspaces/activity-popover.png)
 
@@ -119,16 +119,22 @@ When a tab has splits, every pane gets a 24 pt header with the title and an x on
 
 ![Split pane headers](images/workspaces/split-headers.png)
 
+### Power
+
+The workspaces chrome adapts to the machine automatically, with no setting. It switches to a saver mode when Low Power Mode is on, when the thermal state is serious or critical, or when the Mac runs on battery, and goes back to performance mode as soon as none of them holds. The saver mode only slows the chrome refresh: the title bar, the activity badge, the overlays and the persistence check all run on that refresh, so they update at most once per second instead of five times, and the grid thumbnails are captured and redrawn every 2 seconds instead of every 0.5 s. It changes nothing else: terminals and notifications behave the same. Each mode change is logged once at info level.
+
+Thumbnails are stored at the size of the card (at most 480 points wide), so a snapshot takes a small fraction of the memory of a full capture. Captures are skipped while the window is not key or is hidden.
+
 ### Persistence
 
 Workspaces, tabs, names, folders and the selection are saved in two places:
 
 - The macOS window state, written when you quit. With `window-save-state = always` the window comes back with its splits and working directories on the next launch.
-- A JSON file at `~/Library/Application Support/com.fabriciomirandabr.ghostty-workspaces/workspaces.json`. It keeps the workspace list (name, folder, which one is selected) and, per tab, the name you gave it, the working directory of the focused terminal and the selected tab.
+- A JSON file at `~/Library/Application Support/com.fabriciomirandabr.ghostty-workspaces/workspaces.json`. It keeps the workspace list (name, folder, which one is selected) and, per tab, the name you gave it, the working directory of the focused terminal, the resume token reported by a program in that terminal (see [Resume Claude Code](#resume-claude-code)) and the selected tab. The file is version 2; an older version of the app leaves a version 2 file untouched until you change a workspace or tab.
 
 One window is persisted: the primary workspaces window. A window becomes primary when it was restored with its workspaces (by macOS or from the file) or when it was opened while no other workspaces window existed; a window opened next to an existing one never becomes primary on its own, and a window restored by macOS from a state without workspaces never claims the role. A window restored by macOS claims the role only when it shares at least one workspace with the saved file as it was at launch (or when there is no readable file and it is the first), so a scratch window never takes the role from the window that owns the saved projects, and a restored window writes nothing until its state changes. If macOS restored windows but none of them owns the saved file, one extra window is opened from the file at launch so the saved projects are visible again and become the persisted ones. When the primary window closes, the role passes to the oldest remaining workspaces window that was allowed to claim it (restored with workspaces that match the file, or opened when no other workspaces window existed); a window opened next to another workspaces window or restored without workspaces never becomes primary by hand-off, so closing the primary window never lets a scratch window overwrite its projects. The new primary writes on its next change. Other windows never write or delete the file. Saves happen at most once per second after a change, and again when the primary window closes or the app quits; nothing is written when the state did not change, and a failed write is retried on the next change or at close.
 
-When a new window is requested and no workspaces window exists (at launch when macOS did not restore one, from the Dock icon, `Cmd+N`, a folder opened from Finder, the `new_window` action, Services, AppleScript or Shortcuts), the window is rebuilt from the file: each tab gets a fresh shell in its saved directory, falling back to the workspace folder and then to your home folder when a directory no longer exists. A requested folder or command opens as a new tab in `Default`. So closing the window with the red button and opening it again brings the projects back. A file written by a newer version of the app is left untouched until you change a workspace or tab (directory changes alone do not count).
+When a new window is requested and no workspaces window exists (at launch when macOS did not restore one, from the Dock icon, `Cmd+N`, a folder opened from Finder, the `new_window` action, Services, AppleScript or Shortcuts), the window is rebuilt from the file: each tab gets a fresh shell in its saved directory, falling back to the workspace folder and then to your home folder when a directory no longer exists. A tab that saved a resume token and whose own directory still exists also starts the program again (see [Resume Claude Code](#resume-claude-code)). A requested folder or command opens as a new tab in `Default`. So closing the window with the red button and opening it again brings the projects back. A file written by a newer version of the app is left untouched until you change a workspace or tab (directory changes alone do not count).
 
 `window-save-state = never` disables both: nothing is saved, the file is deleted, and nothing is restored.
 
@@ -188,6 +194,7 @@ Keys:
 - `title`, `msg`: base64 text. The parser accepts a title of up to 192 bytes and a message of up to 2048 bytes (decoded). The app keeps at most 127 bytes of the title and 255 bytes of the message, cut at a character boundary, so that is what the popover and the notifications can show
 - `app`: short name, up to 32 bytes
 - `id`: separates concurrent records, one record per id, each report replaces its record; `state=clear` removes the record of that id, or all records when no id is given
+- `resume`: `<program>/<token>`, up to 97 bytes. The terminal remembers it for the tab and uses it when the tab is restored; an empty value (`resume=`) forgets it. It is read in every report, including a `clear` for an id nobody uses, which leaves the activity state as it was. See [Resume Claude Code](#resume-claude-code)
 
 A whole sequence is at most 4096 bytes. Mapping to the indicator: `working` is running, `blocked` and `error` are needs you, `done` is done and `idle` is idle. `clear` removes the record and the terminal returns to the state derived from the shell (running when a command is in flight, otherwise idle). A new shell command (`OSC 133;C`) or the shell exiting also drops the records, so a status left behind by a program that quit does not hide later activity. At most 64 records are kept per terminal, the oldest is evicted first.
 
@@ -208,6 +215,77 @@ With a base64 message:
 ```sh
 printf '\e]7501;state=blocked:kind=question:app=build:msg=%s\e\\' "$(printf 'Overwrite dist/?' | base64)"
 ```
+
+### Resume Claude Code
+
+A tab that had a Claude Code conversation open can come back inside the same conversation instead of in a bare shell.
+
+How it works:
+
+1. A hook in Claude Code tells the terminal the id of the live session with `resume=claude/<session-id>` (OSC 7501, see above).
+2. The terminal keeps only the program name and the id for each tab, taken from the focused terminal of the tab, and saves them with the rest of the workspace state.
+3. When the tab is restored, from the saved file or from the macOS window state, its shell starts in the saved directory and `claude --resume <session-id>` is typed into it as the first input. The shell stays open, so quitting Claude Code leaves you at the prompt. If `claude` is not in the `PATH`, the shell shows its own error and stays open.
+
+Three tabs in three folders with three conversations come back as three conversations, all started at the same time. A restored tab holds its id from the start, so quitting again before the hook reports keeps it; the first report from the hook replaces it.
+
+The terminal never stores or runs a command taken from the escape. It accepts the program `claude` only, and a token that is a session id: 36 characters in lowercase UUID form (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`, hex digits `0-9a-f`), so a token can never start with `-` and become a flag; anything else is ignored. When shell integration reports the command running in the terminal, the id is accepted only if the command line contains `claude` as a whole word (split on spaces, `/`, `=`, `;`, `&` and `|`), so wrappers such as `env A=1 claude` or `/path/to/claude` work and `cat notes` or `myclaude` do not. The command is built by the app from those two values. The saved file is checked again when it is read.
+
+The report that carries the id is `state=clear:id=resume:resume=claude/<session-id>`. A `clear` for an id that has no record changes nothing, so the status Claude Code reports about itself is not disturbed. `state=clear:id=resume:resume=` forgets the id. The id is also forgotten when a shell command starts or finishes (needs shell integration) and when the terminal's process exits.
+
+Setup:
+
+1. Copy [`hooks/claude-code-resume.sh`](hooks/claude-code-resume.sh) to `~/.config/ghostty/hooks/claude-code-resume.sh`.
+2. Add the hooks to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.config/ghostty/hooks/claude-code-resume.sh\" set"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.config/ghostty/hooks/claude-code-resume.sh\" clear"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The script takes exactly one argument: `set` (read `session_id` from the hook input and report it) or `clear` (forget it). The two entries above pass them; any other argument does nothing. `SessionStart` reports the id each time a session starts, resumes, is cleared or is compacted, so the saved id is always the live one. `SessionEnd` forgets it when the session ends.
+
+Claude Code runs hooks without a controlling terminal, so a hook cannot write to `/dev/tty`, and its `terminalSequence` output does not accept OSC 7501. The script instead reads `session_id` from the JSON on standard input, follows the parent processes (up to 12 levels, with `ps -o tty=` and `ps -o ppid=`) until it finds the terminal device of the `claude` process, and writes the escape sequence there if the device is writable. It prints nothing to standard output, because the output of a `SessionStart` hook is added to the conversation. It exits `0` in every case: outside Ghostty (`TERM_PROGRAM` is not `ghostty`), when no terminal device is found, or when the session id is not in lowercase UUID form. Writing to the terminal device of a parent process is not something the Claude Code documentation covers; if a Claude Code version stops allowing it, the script does nothing and tabs come back as plain shells.
+
+Turn it off with:
+
+```
+workspace-resume-programs = false
+```
+
+With `false` nothing is saved and nothing is started on restore. The default is `true`. With `window-save-state = never` nothing is saved or restored either.
+
+Limitations:
+
+- Only `claude` is supported.
+- Without shell integration, only the `SessionEnd` hook forgets the id when you quit Claude Code.
+- Quitting Ghostty keeps the id of a running conversation, so the next launch resumes it.
+- The saved file keeps one token per tab, from the focused pane, so only that pane is resumed when a window is rebuilt from the file; the other panes of a split come back as shells. The macOS window state keeps a token per pane, so with `window-save-state = always` every pane that reported one is resumed.
+- A tab whose own directory no longer exists comes back as a shell in the workspace folder, without resuming.
+- tmux and screen are not supported: inside them `TERM_PROGRAM` is not `ghostty`, so the script exits.
+- Resuming starts one `claude` process per tab at once.
 
 ### macOS notifications
 
@@ -249,7 +327,8 @@ SwiftPM can hang while resolving Sparkle if the login keychain is locked. Unlock
 - Handler and app plumbing for the existing OSC 7501 parser (`src/terminal/osc/parsers/program_status.zig`): `src/termio/stream_handler.zig`, the `program_status` action and the macOS activity tracking.
 - New `command_started` action from `OSC 133;C` into the app.
 - Eight new keybind actions (`new_workspace`, `close_workspace`, `goto_workspace`, `previous_workspace`, `next_workspace`, `toggle_workspace_overview`, `toggle_workspace_switcher`, `toggle_activity_popover`), all with command palette entries except `goto_workspace`.
-- New config keys `workspace-default-directory`, `workspace-notifications`, `macos-paste-image-sends-ctrl-v`.
+- New config keys `workspace-default-directory`, `workspace-notifications`, `workspace-resume-programs`, `macos-paste-image-sends-ctrl-v`.
+- New `resume` key in the OSC 7501 parser, carried into the app by the `program_status` action, and `workspaces.json` version 2 with a per-tab resume token.
 - Restorable state version 8.
 - Renamed bundle id.
 
@@ -265,4 +344,5 @@ Other title bar styles keep upstream behavior. On Linux/GTK there is no UI and t
 - `Cmd+N` opens a second, independent workspaces window.
 - UI text is English only.
 - An agent that asks a question without OSC 7501 or a bell is not detected.
+- Resuming a Claude Code conversation needs the hook from [Resume Claude Code](#resume-claude-code); see its limitations.
 - Switching away from the workspaces style after saving state restores only the visible tab; hidden workspaces are dropped (their shells are started during decoding and then discarded).

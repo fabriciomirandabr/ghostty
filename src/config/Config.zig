@@ -3666,6 +3666,19 @@ keybind: Keybinds = .{},
 /// This only affects the macOS app. The default is true.
 @"workspace-notifications": bool = true,
 
+/// If true, the macOS app remembers the resume token a program reports
+/// through OSC 7501 (`resume=<program>/<token>`) for each workspace tab and,
+/// when the tab is restored, starts the program again with that token
+/// (`claude --resume <token>`) before handing the terminal to the shell.
+/// Only programs the app knows (`claude`) are started; the token must be a
+/// session id in lowercase UUID form (36 characters). The shell stays
+/// open after the program exits.
+///
+/// If false, no token is stored or started.
+///
+/// This only affects the macOS app. The default is true.
+@"workspace-resume-programs": bool = true,
+
 /// Customize the macOS app icon.
 ///
 /// This only affects the icon that appears in the dock, application
@@ -10990,6 +11003,17 @@ test "workspace-notifications: default is true and can be disabled" {
     var it: TestIterator = .{ .data = &.{"--workspace-notifications=false"} };
     try cfg.loadIter(cfg._arena.?.allocator(), &it);
     try testing.expect(!cfg.@"workspace-notifications");
+}
+
+test "workspace-resume-programs: default is true and can be disabled" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    try testing.expect(cfg.@"workspace-resume-programs");
+
+    var it: TestIterator = .{ .data = &.{"--workspace-resume-programs=false"} };
+    try cfg.loadIter(cfg._arena.?.allocator(), &it);
+    try testing.expect(!cfg.@"workspace-resume-programs");
 }
 
 test "clone default" {

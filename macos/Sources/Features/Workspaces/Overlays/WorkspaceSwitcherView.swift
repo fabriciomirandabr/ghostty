@@ -5,6 +5,7 @@ struct WorkspaceSwitcherEntry: Identifiable, Equatable {
     let name: String
     let folder: String
     let state: SurfaceActivityState
+    var runningCount: Int = 0
 }
 
 enum WorkspaceSwitcherFilter {
@@ -17,7 +18,8 @@ enum WorkspaceSwitcherFilter {
                 id: $0.id,
                 name: $0.name,
                 folder: WorkspaceFolderLabel.abbreviated($0.directory, home: home),
-                state: $0.state
+                state: $0.state,
+                runningCount: $0.runningTabCount
             )
         }
     }
@@ -178,12 +180,16 @@ private struct WorkspaceSwitcherRow: View {
             HStack(spacing: 10) {
                 Group {
                     if entry.state == .running || entry.state == .needsAttention {
-                        StatusIndicatorView(state: entry.state, style: .compact, diameter: 14)
+                        StatusIndicatorView(
+                            state: entry.state,
+                            diameter: 16,
+                            badgeText: StatusIndicatorView.badgeText(for: entry.state, runningCount: entry.runningCount)
+                        )
                     } else {
                         Color.clear
                     }
                 }
-                .frame(width: 14, height: 14)
+                .frame(width: 16, height: 16)
 
                 Text(entry.name)
                     .font(.system(size: 13, weight: .semibold))

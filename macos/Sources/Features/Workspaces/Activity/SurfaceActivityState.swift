@@ -21,6 +21,7 @@ enum SurfaceActivityState: Int, Comparable, Equatable, Sendable {
         case childExited
         case attentionCleared
         case programStatus(ProgramStatusReport)
+        case resumeSeeded(ProgramResume)
     }
 
     struct Signals: Equatable {
@@ -31,6 +32,8 @@ enum SurfaceActivityState: Int, Comparable, Equatable, Sendable {
         var doneUntil: Date?
         var programRecords: [String: ProgramRecord] = [:]
         var programOrder: Int = 0
+        var programResume: ProgramResume?
+        var resumeSeeded: Bool = false
 
         func applying(_ event: Event, at now: Date) -> Signals {
             var next = self
@@ -39,10 +42,13 @@ enum SurfaceActivityState: Int, Comparable, Equatable, Sendable {
                 next.commandRunning = true
                 next.doneUntil = nil
                 next.programRecords.removeAll()
+                if !resumeSeeded { next.programResume = nil }
 
             case .commandFinished:
                 next.commandRunning = false
                 next.doneUntil = now.addingTimeInterval(SurfaceActivityState.doneLifetime)
+                next.programResume = nil
+                next.resumeSeeded = false
 
             case .bell:
                 next.bell = true
@@ -58,6 +64,8 @@ enum SurfaceActivityState: Int, Comparable, Equatable, Sendable {
                 next.progress = nil
                 next.doneUntil = nil
                 next.programRecords.removeAll()
+                next.programResume = nil
+                next.resumeSeeded = false
 
             case .attentionCleared:
                 next.bell = false
@@ -65,6 +73,11 @@ enum SurfaceActivityState: Int, Comparable, Equatable, Sendable {
 
             case .programStatus(let report):
                 next.applyProgramStatus(report, at: now)
+                next.applyProgramResume(report.resume)
+
+            case .resumeSeeded(let resume):
+                next.programResume = resume
+                next.resumeSeeded = true
             }
             return next
         }

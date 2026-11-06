@@ -23,6 +23,7 @@ struct ProgramStatusReport: Equatable {
     var progress: Int?
     var title: String?
     var message: String?
+    var resume: String?
 
     var text: String? {
         if let message, !message.isEmpty { return message }
@@ -82,6 +83,17 @@ extension SurfaceActivityState.Signals {
                     : nil,
                 order: programOrder
             )
+        }
+    }
+
+    mutating func applyProgramResume(_ raw: String?) {
+        guard let raw else { return }
+        if raw.isEmpty {
+            programResume = nil
+            resumeSeeded = false
+        } else if let parsed = ProgramResume.parse(raw) {
+            programResume = parsed
+            resumeSeeded = false
         }
     }
 

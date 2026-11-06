@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct SplitPaneHeaderPalette: Equatable {
@@ -120,11 +121,21 @@ struct SplitPaneHeaderView: View {
 }
 
 struct SplitPaneHeaderHost: View {
-    @ObservedObject var surfaceView: Ghostty.SurfaceView
+    let surfaceView: Ghostty.SurfaceView
     let isActive: Bool
     let onClose: () -> Void
 
+    @State private var title: String
+
+    init(surfaceView: Ghostty.SurfaceView, isActive: Bool, onClose: @escaping () -> Void) {
+        self.surfaceView = surfaceView
+        self.isActive = isActive
+        self.onClose = onClose
+        _title = State(initialValue: surfaceView.title)
+    }
+
     var body: some View {
-        SplitPaneHeaderView(title: surfaceView.title, isActive: isActive, onClose: onClose)
+        SplitPaneHeaderView(title: title, isActive: isActive, onClose: onClose)
+            .onReceive(surfaceView.$title.removeDuplicates()) { title = $0 }
     }
 }

@@ -2,8 +2,6 @@ import SwiftUI
 
 struct ActivityBadgeView: View {
     static let size: CGFloat = 28
-    static let cornerRadius: CGFloat = 8
-    static let ringSize: CGFloat = 22
     static let maxDisplayedCount = 99
 
     let runningCount: Int
@@ -14,7 +12,6 @@ struct ActivityBadgeView: View {
 
     @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static func accessibilityLabel(runningCount: Int, needsAttention: Bool) -> String {
         let base = showsGrid(runningCount: runningCount) ? "Workspaces" : "Workspaces overview: \(runningCount) running"
@@ -29,23 +26,21 @@ struct ActivityBadgeView: View {
         runningCount > maxDisplayedCount ? "\(maxDisplayedCount)+" : "\(runningCount)"
     }
 
+    static func badgeStyle(runningCount: Int, colorScheme: ColorScheme = .dark) -> WorkspaceBadgeStyle {
+        WorkspaceBadgeStyle.make(for: showsGrid(runningCount: runningCount) ? .idle : .running, colorScheme: colorScheme)
+    }
+
     var body: some View {
         let palette = WorkspaceTitlebarPalette(colorScheme: colorScheme)
+        let style = Self.badgeStyle(runningCount: runningCount, colorScheme: colorScheme)
+        let highlighted = (isHovering || isOpen) && Self.showsGrid(runningCount: runningCount)
 
         Button(action: onTap) {
-            badgeContent(palette: palette)
+            badgeContent(style: style)
                 .frame(width: Self.size, height: Self.size)
                 .background(
-                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                        .fill(isHovering || isOpen ? palette.badgeHoverBackground : palette.badgeBackground)
+                    Circle().fill(highlighted ? palette.badgeHoverBackground : style.fill)
                 )
-                .overlay {
-                    if runningCount > 0 {
-                        ProcessingRing(color: palette.badgeRing, isAnimated: !reduceMotion)
-                            .frame(width: Self.ringSize, height: Self.ringSize)
-                            .allowsHitTesting(false)
-                    }
-                }
                 .overlay(alignment: .topTrailing) {
                     if needsAttention {
                         Circle()
@@ -57,7 +52,7 @@ struct ActivityBadgeView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -68,36 +63,15 @@ struct ActivityBadgeView: View {
     }
 
     @ViewBuilder
-    private func badgeContent(palette: WorkspaceTitlebarPalette) -> some View {
+    private func badgeContent(style: WorkspaceBadgeStyle) -> some View {
         if Self.showsGrid(runningCount: runningCount) {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 13, weight: .regular))
-                .foregroundColor(palette.badgeText.opacity(0.6))
+                .foregroundColor(style.foreground.opacity(0.6))
         } else {
             Text(Self.displayText(runningCount: runningCount))
                 .workspaceTitlebarFont(size: 12, weight: .semibold)
-                .foregroundColor(palette.badgeText)
+                .foregroundColor(style.foreground)
         }
-    }
-}
-
-private struct ProcessingRing: View {
-    let color: Color
-    let isAnimated: Bool
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .trim(from: 0.625, to: 0.875)
-                .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
-            Circle()
-                .trim(from: 0.875, to: 1)
-                .stroke(color.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
-            Circle()
-                .trim(from: 0, to: 0.125)
-                .stroke(color.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
-        }
-        .padding(0.75)
-        .modifier(Spinning(period: 1, isActive: isAnimated))
     }
 }

@@ -9,9 +9,7 @@ enum WorkspaceOverlayMetrics {
 }
 
 enum WorkspaceOverlayPalette {
-    static let running = fixed(0x4f7cff)
     static let needsAttention = fixed(0xf5d90a)
-    static let runningBadge = fixed(0x2b3f8a)
     static let badgeInk = fixed(0x111111)
 
     static let overviewBackground = adaptive(dark: 0x141414, light: 0xf2f2f2)

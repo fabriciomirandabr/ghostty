@@ -10,6 +10,19 @@ enum WorkspaceSurfaceConfiguration {
         return config
     }
 
+    static func make(
+        base: Ghostty.SurfaceConfiguration?,
+        directory: URL,
+        resume: ProgramResume?,
+        enabled: Bool
+    ) -> Ghostty.SurfaceConfiguration {
+        var config = make(base: base, directory: directory)
+        if let input = ProgramResume.launchInput(for: resume, directoryExists: true, enabled: enabled) {
+            config.initialInput = input
+        }
+        return config
+    }
+
     static func make<ViewType>(
         base: Ghostty.SurfaceConfiguration?,
         workspace: Workspace<ViewType>

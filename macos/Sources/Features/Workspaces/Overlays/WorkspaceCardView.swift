@@ -2,18 +2,23 @@ import SwiftUI
 
 struct WorkspaceStateBadge: View {
     let state: SurfaceActivityState
+    var runningCount = 0
 
     var body: some View {
         if let label = WorkspaceStateText.badge(state) {
             HStack(spacing: 6) {
                 if state == .running {
-                    StatusIndicatorView(state: .running, style: .compact, diameter: 10)
+                    StatusIndicatorView(
+                        state: .running,
+                        diameter: 18,
+                        badgeText: StatusIndicatorView.badgeText(for: .running, runningCount: runningCount)
+                    )
                 }
                 Text(label)
                     .font(.system(size: 11.5, weight: .semibold))
             }
             .foregroundColor(foreground)
-            .padding(.leading, state == .running ? 8 : 10)
+            .padding(.leading, state == .running ? 0 : 10)
             .padding(.trailing, 10)
             .frame(height: 22)
             .background(
@@ -28,16 +33,15 @@ struct WorkspaceStateBadge: View {
 
     private var background: Color {
         switch state {
-        case .running: return WorkspaceOverlayPalette.runningBadge
         case .needsAttention: return WorkspaceOverlayPalette.needsAttention
         case .done: return WorkspaceOverlayPalette.doneBadgeBackground
-        case .idle: return Color.clear
+        case .running, .idle: return Color.clear
         }
     }
 
     private var foreground: Color {
         switch state {
-        case .running: return Color.white
+        case .running: return WorkspaceOverlayPalette.primaryText
         case .needsAttention: return WorkspaceOverlayPalette.badgeInk
         case .done: return WorkspaceOverlayPalette.doneBadgeInk
         case .idle: return Color.clear
@@ -128,7 +132,7 @@ struct WorkspaceCardView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            WorkspaceStateBadge(state: workspace.state)
+            WorkspaceStateBadge(state: workspace.state, runningCount: workspace.runningTabCount)
 
             Text(workspace.name)
                 .font(.system(size: 13, weight: .semibold))
@@ -151,8 +155,7 @@ struct WorkspaceCardView: View {
         if workspace.isCurrent { return WorkspaceOverlayPalette.currentBorder }
         switch workspace.state {
         case .needsAttention: return WorkspaceOverlayPalette.needsAttention
-        case .running: return WorkspaceOverlayPalette.running
-        case .done, .idle: return hovering ? WorkspaceOverlayPalette.cardHoverBorder : WorkspaceOverlayPalette.cardBorder
+        case .running, .done, .idle: return hovering ? WorkspaceOverlayPalette.cardHoverBorder : WorkspaceOverlayPalette.cardBorder
         }
     }
 }

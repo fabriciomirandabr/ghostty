@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Testing
 @testable import Ghostty
 
@@ -38,6 +39,27 @@ struct WorkspaceTitlebarMetricsTests {
             windowHeight: 300)
 
         #expect(measurement.height == WorkspaceTitlebarMetrics.minimumHeight)
+    }
+
+    @Test func updateWithUnchangedMetricsPublishesNothing() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: true)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+
+        let metrics = WorkspaceTitlebarMetrics()
+        metrics.update(from: window)
+
+        var changes = 0
+        let cancellable = metrics.objectWillChange.sink { _ in changes += 1 }
+        metrics.update(from: window)
+        metrics.update(from: window)
+
+        #expect(changes == 0)
+        cancellable.cancel()
     }
 
     @Test func updateReadsTheRealWindowButtons() {

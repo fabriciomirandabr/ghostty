@@ -521,8 +521,8 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 24,
-            8 => 40,
+            4 => 28,
+            8 => 48,
             else => unreachable,
         });
     }
@@ -1094,6 +1094,7 @@ pub const ProgramStatus = struct {
     id: [:0]const u8,
     title: [:0]const u8,
     msg: [:0]const u8,
+    @"resume": ?[:0]const u8,
 
     pub const State = enum(c_int) {
         idle,
@@ -1145,6 +1146,7 @@ pub const ProgramStatus = struct {
         id: [*:0]const u8,
         title: [*:0]const u8,
         msg: [*:0]const u8,
+        @"resume": ?[*:0]const u8,
     };
 
     pub fn cval(self: ProgramStatus) C {
@@ -1155,6 +1157,7 @@ pub const ProgramStatus = struct {
             .id = self.id.ptr,
             .title = self.title.ptr,
             .msg = self.msg.ptr,
+            .@"resume" = if (self.@"resume") |value| value.ptr else null,
         };
     }
 
@@ -1167,6 +1170,7 @@ pub const ProgramStatus = struct {
             .id = "a/b",
             .title = "T",
             .msg = "M",
+            .@"resume" = "claude/abc",
         } };
         const c = action.cval();
         try testing.expectEqual(Action.Key.program_status, c.key);
@@ -1175,6 +1179,7 @@ pub const ProgramStatus = struct {
         try testing.expectEqual(@as(i8, 40), c.value.program_status.progress);
         try testing.expectEqualStrings("a/b", std.mem.span(c.value.program_status.id));
         try testing.expectEqualStrings("M", std.mem.span(c.value.program_status.msg));
+        try testing.expectEqualStrings("claude/abc", std.mem.span(c.value.program_status.@"resume".?));
 
         const bare: ProgramStatus = .{
             .state = .idle,
@@ -1183,8 +1188,21 @@ pub const ProgramStatus = struct {
             .id = "",
             .title = "",
             .msg = "",
+            .@"resume" = null,
         };
         try testing.expectEqual(@as(i8, -1), bare.cval().progress);
+        try testing.expect(bare.cval().@"resume" == null);
+
+        const cleared: ProgramStatus = .{
+            .state = .clear,
+            .kind = .none,
+            .progress = null,
+            .id = "resume",
+            .title = "",
+            .msg = "",
+            .@"resume" = "",
+        };
+        try testing.expectEqualStrings("", std.mem.span(cleared.cval().@"resume".?));
     }
 
     test "program_status key is in sync with ghostty.h" {

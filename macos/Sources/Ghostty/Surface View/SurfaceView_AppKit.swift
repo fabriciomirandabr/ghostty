@@ -90,7 +90,8 @@ extension Ghostty {
 
         // The last known mouse location in the surface's local coordinate space,
         // used by overlays such as the split drag handle reveal region.
-        @Published private(set) var mouseLocationInSurface: CGPoint?
+        let mouseLocationSubject = CurrentValueSubject<CGPoint?, Never>(nil)
+        var mouseLocationInSurface: CGPoint? { mouseLocationSubject.value }
 
         // Whether the cursor is currently visible (not hidden by typing, etc.)
         @Published private(set) var cursorVisible: Bool = true
@@ -114,6 +115,8 @@ extension Ghostty {
         @Published private(set) var activityState: SurfaceActivityState = .idle
 
         @Published private(set) var lastCommand: String?
+
+        @Published private(set) var programResume: ProgramResume?
 
         private var shellCommand: String?
         private var activitySignals = SurfaceActivityState.Signals()
@@ -464,7 +467,19 @@ extension Ghostty {
         }
 
         func programStatus(_ report: ProgramStatusReport) {
+            var report = report
+            if let raw = report.resume, !raw.isEmpty {
+                let runningCommand = activitySignals.commandRunning ? shellCommand : nil
+                if ProgramResume.parse(raw) == nil || !ProgramResume.commandAllows(runningCommand) {
+                    Ghostty.logger.debug("program resume rejected")
+                    report.resume = nil
+                }
+            }
             applyActivity(.programStatus(report))
+        }
+
+        func seedProgramResume(_ resume: ProgramResume) {
+            applyActivity(.resumeSeeded(resume))
         }
 
         func commandDidFinish() {
@@ -489,6 +504,7 @@ extension Ghostty {
         private func refreshActivityState(at now: Date) {
             let next = activitySignals.state(at: now)
             if activityState != next { activityState = next }
+            if programResume != activitySignals.programResume { programResume = activitySignals.programResume }
 
             let command = activitySignals.programDetail(at: now) ?? shellCommand
             if lastCommand != command { lastCommand = command }
@@ -1065,7 +1081,7 @@ extension Ghostty {
             super.mouseEntered(with: event)
 
             let pos = self.convert(event.locationInWindow, from: nil)
-            mouseLocationInSurface = pos
+            updateMouseLocationInSurface(pos)
 
             guard let surfaceModel else { return }
 
@@ -1083,7 +1099,7 @@ extension Ghostty {
 
         override func mouseExited(with event: NSEvent) {
             mouseOverSurface = false
-            mouseLocationInSurface = nil
+            updateMouseLocationInSurface(nil)
             guard let surfaceModel else { return }
 
             // If the mouse is being dragged then we don't have to emit
@@ -1102,9 +1118,22 @@ extension Ghostty {
             surfaceModel.sendMousePos(mouseEvent)
         }
 
+        static func shouldPublishMouseLocation(from old: CGPoint?, to new: CGPoint?) -> Bool {
+            switch (old, new) {
+            case (nil, nil): return false
+            case (nil, _), (_, nil): return true
+            case let (old?, new?): return abs(old.x - new.x) >= 1 || abs(old.y - new.y) >= 1
+            }
+        }
+
+        private func updateMouseLocationInSurface(_ location: CGPoint?) {
+            guard Self.shouldPublishMouseLocation(from: mouseLocationInSurface, to: location) else { return }
+            mouseLocationSubject.send(location)
+        }
+
         override func mouseMoved(with event: NSEvent) {
             let pos = self.convert(event.locationInWindow, from: nil)
-            mouseLocationInSurface = pos
+            updateMouseLocationInSurface(pos)
 
             guard let surfaceModel else { return }
 
@@ -1943,6 +1972,7 @@ extension Ghostty {
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
             let pasteImageSendsCtrlV: Bool
+            let workspaceResumePrograms: Bool
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1953,6 +1983,7 @@ extension Ghostty {
                 self.windowAppearance = nil
                 self.scrollbar = .system
                 self.pasteImageSendsCtrlV = true
+                self.workspaceResumePrograms = true
             }
 
             init(_ config: Ghostty.Config) {
@@ -1964,6 +1995,7 @@ extension Ghostty {
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
                 self.pasteImageSendsCtrlV = config.macosPasteImageSendsCtrlV
+                self.workspaceResumePrograms = config.workspaceResumePrograms
             }
         }
 
@@ -1974,6 +2006,8 @@ extension Ghostty {
             case uuid
             case title
             case isUserSetTitle
+            case resumeProgram
+            case resumeToken
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1990,8 +2024,22 @@ extension Ghostty {
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
+            let resumeProgram = try container.decodeIfPresent(String.self, forKey: .resumeProgram)
+            let resumeToken = try container.decodeIfPresent(String.self, forKey: .resumeToken)
+            var restoredResume: ProgramResume?
+            if let resumeProgram, let resumeToken, let pwd = config.workingDirectory {
+                restoredResume = ProgramResume.restored(
+                    ProgramResume(program: resumeProgram, token: resumeToken),
+                    directoryExists: WorkspacePersistedState.directoryExists(URL(fileURLWithPath: pwd, isDirectory: true)),
+                    enabled: appDel.ghostty.config.workspaceResumePrograms)
+                config.initialInput = restoredResume?.launchInput
+            }
 
             self.init(app, baseConfig: config, uuid: uuid)
+
+            if let restoredResume {
+                seedProgramResume(restoredResume)
+            }
 
             // Restore the saved title after initialization
             if let title = savedTitle {
@@ -2009,6 +2057,10 @@ extension Ghostty {
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
             try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
+            if derivedConfig.workspaceResumePrograms, let programResume {
+                try container.encode(programResume.program, forKey: .resumeProgram)
+                try container.encode(programResume.token, forKey: .resumeToken)
+            }
         }
     }
 }
