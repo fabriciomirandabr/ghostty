@@ -87,74 +87,29 @@ struct ActivityBadgeViewTests {
             .appendingPathComponent("Sources/Features/Workspaces")
         let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
         let badgeFiles: Set<String> = ["StatusIndicatorView.swift", "ActivityBadgeView.swift", "ActivityPopoverView.swift"]
-        var offenders: [String] = []
+        let thumbnailFile = "WorkspaceThumbnailView.swift"
+        let animationPrimitives = ["withAnimation(", ".animation(", "repeatForever"]
+        var scannedFiles = 0
         var scannedBadgeFiles = 0
-        var timelineCounts: [String: Int] = [:]
-        var periodicCounts: [String: Int] = [:]
+        var animationOffenders: [String] = []
+        var timelineOffenders: [String] = []
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
-            let squeezed = text.filter { !$0.isWhitespace }
             let name = url.lastPathComponent
-            let isBadgeFile = badgeFiles.contains(name)
-            if isBadgeFile {
+            scannedFiles += 1
+            if badgeFiles.contains(name) {
                 scannedBadgeFiles += 1
-                timelineCounts[name] = text.components(separatedBy: "TimelineView").count - 1
-                periodicCounts[name] = squeezed.components(separatedBy: "TimelineView(.periodic(").count - 1
+                if text.contains("TimelineView") { timelineOffenders.append(name) }
             }
-            let bannedInBadgeFiles = [
-                "withAnimation(", ".animation(", "TimelineView(.animation", "by:1/60", "by:0.016",
-            ].contains { text.contains($0) || squeezed.contains($0) }
-            if text.contains("repeatForever") || (isBadgeFile && bannedInBadgeFiles) {
-                offenders.append(name)
+            if name != thumbnailFile {
+                if animationPrimitives.contains(where: { text.contains($0) }) { animationOffenders.append(name) }
+                if text.contains("TimelineView") { timelineOffenders.append(name) }
             }
         }
         #expect(scannedBadgeFiles >= 3)
-        #expect(offenders.isEmpty)
-        #expect(timelineCounts["ActivityBadgeView.swift"] == 1)
-        #expect(periodicCounts["ActivityBadgeView.swift"] == 1)
-        #expect(timelineCounts["StatusIndicatorView.swift"] == 0)
-        #expect(timelineCounts["ActivityPopoverView.swift"] == 0)
-    }
-
-    @Test func ringStepMapsTimeToEighths() {
-        let base = Date(timeIntervalSinceReferenceDate: 1_000_000)
-        let steps = (0..<16).map { ActivityBadgeView.ringStep(at: base.addingTimeInterval(Double($0) * 0.25 + 0.01)) }
-        #expect(Set(steps) == Set(0...7))
-        #expect(Array(steps[8...]) == Array(steps[..<8]))
-        #expect(zip(steps, steps.dropFirst()).allSatisfy { ($0 + 1) % 8 == $1 })
-        #expect(ActivityBadgeView.ringStep(at: base) == ActivityBadgeView.ringStep(at: base.addingTimeInterval(0.2)))
-        #expect(ActivityBadgeView.ringStep(at: Date(timeIntervalSinceReferenceDate: 0)) == 0)
-        #expect(ActivityBadgeView.ringStep(at: Date(timeIntervalSinceReferenceDate: 0.5)) == 2)
-        #expect(ActivityBadgeView.ringStep(at: Date(timeIntervalSinceReferenceDate: -0.1)) == 7)
-        #expect(ActivityBadgeView.ringAngle(at: Date(timeIntervalSinceReferenceDate: 0.75)) == 135)
-    }
-
-    @Test func ringSpinsOnlyWhenMotionAllowedAndKey() {
-        #expect(ActivityBadgeView.shouldSpinRing(reduceMotion: false, isKeyWindow: true, isWindowVisible: true))
-        #expect(!ActivityBadgeView.shouldSpinRing(reduceMotion: true, isKeyWindow: true, isWindowVisible: true))
-        #expect(!ActivityBadgeView.shouldSpinRing(reduceMotion: false, isKeyWindow: false, isWindowVisible: true))
-    }
-
-    @MainActor
-    @Test func ringStaysStaticWhenWindowHidden() {
-        #expect(!ActivityBadgeView.shouldSpinRing(reduceMotion: false, isKeyWindow: true, isWindowVisible: false))
-        #expect(!ActivityBadgeView.shouldSpinRing(reduceMotion: true, isKeyWindow: false, isWindowVisible: false))
-        #expect(WorkspaceTitlebarSnapshot().isWindowVisible == false)
-        let model = WorkspaceTitlebarViewModel(shortcut: { _ in nil })
-        #expect(!model.isWindowVisible)
-        model.apply(WorkspaceTitlebarSnapshot(isWindowVisible: true))
-        #expect(model.isWindowVisible)
-        model.apply(WorkspaceTitlebarSnapshot(isWindowVisible: false))
-        #expect(!model.isWindowVisible)
-    }
-
-    @Test func ringScheduleStartsOnAQuarterSecondBoundary() {
-        let now = Date(timeIntervalSinceReferenceDate: 1_000_000.37)
-        let start = ActivityBadgeView.ringScheduleStart(now: now)
-        #expect(start.timeIntervalSinceReferenceDate == 1_000_000.25)
-        #expect(start <= now)
-        #expect(now.timeIntervalSince(start) < 0.25)
-        #expect(ActivityBadgeView.ringStep(at: start) == ActivityBadgeView.ringStep(at: now))
+        #expect(scannedFiles > scannedBadgeFiles)
+        #expect(animationOffenders.isEmpty)
+        #expect(timelineOffenders.isEmpty)
     }
 
     @Test func displayTextCapsLargeCounts() {

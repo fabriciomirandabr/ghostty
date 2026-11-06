@@ -76,11 +76,15 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         }
     )
     private var chromeRefreshPending = false
-    private lazy var chromeThrottle = WorkspaceChromeRefreshThrottle { [weak self] in
-        self?.refreshChrome()
-    }
+    private lazy var chromeThrottle = WorkspaceChromeRefreshThrottle(
+        interval: { [unowned self] in self.effectiveMode.chromeThrottleInterval },
+        isSuspended: { [unowned self] in self.isChromeSuspended },
+        performSuspended: { [unowned self] in self.schedulePersistIfChanged() },
+        perform: { [unowned self] in self.refreshChrome() })
     private var persistGate = WorkspacePersistGate()
     private var powerCancellable: AnyCancellable?
+    private var windowIsKey = false
+    private var scheduledSnapshotInterval: TimeInterval?
     private var popoverHoverItem: DispatchWorkItem?
     private var snapshotTimer: Timer?
     private var escapeMonitor: Any?
@@ -196,13 +200,16 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
             object: nil)
         center.addObserver(
             self,
-            selector: #selector(windowOcclusionDidChange(_:)),
-            name: NSWindow.didChangeOcclusionStateNotification,
-            object: nil)
-        center.addObserver(
-            self,
             selector: #selector(applicationWillTerminate(_:)),
             name: NSApplication.willTerminateNotification,
+            object: nil)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            center.addObserver(self, selector: #selector(windowKeyDidChange(_:)), name: name, object: nil)
+        }
+        center.addObserver(
+            self,
+            selector: #selector(windowOcclusionDidChange(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification,
             object: nil)
     }
 
@@ -294,11 +301,6 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     func persistNow() {
         recordFocusInSelectedTab()
         persistence.flush(persistedState(), from: self, enabled: persistenceEnabled)
-    }
-
-    @objc private func windowOcclusionDidChange(_ notification: Notification) {
-        guard let changed = notification.object as? NSWindow, changed === window else { return }
-        scheduleChromeRefresh()
     }
 
     @objc private func applicationWillTerminate(_ notification: Notification) {
@@ -434,12 +436,16 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
                 .sink { [weak self] _ in self?.invalidateRestorableState() }
         }
 
+        guard !isChromeSuspended else {
+            schedulePersistIfChanged()
+            return
+        }
+
         titlebarViewModel.apply(WorkspaceTitlebarSnapshot.make(
             store: store,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fontSize: currentFontSize,
             canSplit: focusedSurface?.surfaceModel != nil,
-            isWindowVisible: window?.occlusionState.contains(.visible) ?? false,
             activity: { $0.activityState },
             surfaceTitle: { Self.focusedSurface(of: $0)?.title ?? "" },
             surfacePwd: { Self.focusedSurface(of: $0)?.pwd }))
@@ -531,13 +537,12 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
     }
 
     private func bindChrome() {
-        powerCancellable = WorkspacePowerMonitor.shared.$mode
+        powerCancellable = WorkspacePowerMonitor.shared.$inputs
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] mode in
-                guard let self, self.snapshotTimer != nil else { return }
-                self.stopSnapshotTimer()
-                self.scheduleSnapshotTimer(interval: mode.snapshotInterval)
+            .sink { [weak self] inputs in
+                guard let self else { return }
+                self.applySnapshotInterval(inputs.mode(windowKey: self.windowIsKey))
             }
 
         overlayCancellable = overlayState.objectWillChange.sink { [weak self] _ in
@@ -611,13 +616,46 @@ final class WorkspaceTerminalController: TerminalController, WorkspaceStoreDeleg
         Ghostty.moveFocus(to: target)
     }
 
+    private var effectiveMode: WorkspacePowerMode {
+        WorkspacePowerMonitor.shared.inputs.mode(windowKey: windowIsKey)
+    }
+
+    private var isChromeSuspended: Bool {
+        guard let window else { return false }
+        return !window.isVisible || !window.occlusionState.contains(.visible)
+    }
+
+    private func applySnapshotInterval(_ mode: WorkspacePowerMode) {
+        guard snapshotTimer != nil, mode.snapshotInterval != scheduledSnapshotInterval else { return }
+        stopSnapshotTimer()
+        scheduleSnapshotTimer(interval: mode.snapshotInterval)
+    }
+
+    @objc private func windowKeyDidChange(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window else { return }
+        windowIsKey = window.isKeyWindow
+        applySnapshotInterval(effectiveMode)
+        if windowIsKey {
+            chromeThrottle.resume()
+            if snapshotTimer != nil {
+                captureSelectedTabSnapshot()
+            }
+        }
+    }
+
+    @objc private func windowOcclusionDidChange(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, !isChromeSuspended else { return }
+        chromeThrottle.resume()
+    }
+
     private func startSnapshotTimer() {
         captureSelectedTabSnapshot()
         guard snapshotTimer == nil else { return }
-        scheduleSnapshotTimer(interval: WorkspacePowerMonitor.shared.mode.snapshotInterval)
+        scheduleSnapshotTimer(interval: effectiveMode.snapshotInterval)
     }
 
     private func scheduleSnapshotTimer(interval: TimeInterval) {
+        scheduledSnapshotInterval = interval
         snapshotTimer = Timer.scheduledTimer(
             withTimeInterval: interval,
             repeats: true

@@ -19,6 +19,8 @@ const log = std.log.scoped(.renderer_thread);
 
 const CURSOR_BLINK_INTERVAL = 600;
 
+const unfocused_frame_interval_ms: u64 = 100;
+
 /// Whether calls to `drawFrame` must be done from the app thread.
 ///
 /// The type used for sending messages to the IO thread. For now this is
@@ -52,6 +54,11 @@ render_c_cancel: xev.Completion = .{},
 /// The kind of work the currently scheduled animation wake needs,
 /// stored when the timer is armed.
 animation_wake: rendererpkg.Renderer.AnimationWake.Kind = .draw,
+
+throttle_h: xev.Timer,
+throttle_c: xev.Completion = .{},
+throttle_pending: bool = false,
+last_render_ns: ?u64 = null,
 
 /// This async is used to force a draw immediately. This does not
 /// coalesce like the wakeup does.
@@ -136,6 +143,9 @@ pub fn init(
     var render_h = try xev.Timer.init();
     errdefer render_h.deinit();
 
+    var throttle_h = try xev.Timer.init();
+    errdefer throttle_h.deinit();
+
     // Draw now async, see comments.
     var draw_now = try xev.Async.init();
     errdefer draw_now.deinit();
@@ -155,6 +165,7 @@ pub fn init(
         .wakeup = wakeup_h,
         .stop = stop_h,
         .render_h = render_h,
+        .throttle_h = throttle_h,
         .draw_now = draw_now,
         .cursor_h = cursor_timer,
         .surface = surface,
@@ -178,6 +189,7 @@ pub fn deinit(self: *Thread) void {
     self.stop.deinit();
     self.wakeup.deinit();
     self.render_h.deinit();
+    self.throttle_h.deinit();
     self.draw_now.deinit();
     self.cursor_h.deinit();
     if (comptime terminalpkg.compression_enabled)
@@ -489,31 +501,90 @@ fn wakeupCallback(
     t.drainMailbox() catch |err|
         log.err("error draining mailbox err={}", .{err});
 
-    // Render immediately
-    _ = renderCallback(t, undefined, undefined, {});
+    t.wakeRender();
 
     // PageList mutations maintain their own compression dirty state. Checking
     // it here covers output, resize, and viewport scrolling uniformly.
     t.compression.wake(t);
 
-    // The below is not used anymore but if we ever want to introduce
-    // a configuration to introduce a delay to coalesce renders, we can
-    // use this.
-    //
-    // // If the timer is already active then we don't have to do anything.
-    // if (t.render_c.state() == .active) return .rearm;
-    //
-    // // Timer is not active, let's start it
-    // t.render_h.run(
-    //     &t.loop,
-    //     &t.render_c,
-    //     10,
-    //     Thread,
-    //     t,
-    //     renderCallback,
-    // );
-
     return .rearm;
+}
+
+fn monotonicNs() u64 {
+    const now: std.Io.Timestamp = .now(global.io(), .awake);
+    return @intCast(now.nanoseconds);
+}
+
+fn shouldRenderNow(focused: bool, last_render_ns: ?u64, now_ns: u64) bool {
+    if (focused) return true;
+    const last = last_render_ns orelse return true;
+    return now_ns -| last >= unfocused_frame_interval_ms * std.time.ns_per_ms;
+}
+
+fn throttleDelayMs(last_render_ns: u64, now_ns: u64) u64 {
+    const interval_ns = unfocused_frame_interval_ms * std.time.ns_per_ms;
+    const elapsed_ns = now_ns -| last_render_ns;
+    if (elapsed_ns >= interval_ns) return 1;
+    return @max(1, (interval_ns - elapsed_ns + std.time.ns_per_ms - 1) / std.time.ns_per_ms);
+}
+
+fn wakeRender(self: *Thread) void {
+    const now_ns = monotonicNs();
+    if (shouldRenderNow(self.flags.focused, self.last_render_ns, now_ns)) {
+        self.throttle_pending = false;
+        _ = renderCallback(self, undefined, undefined, {});
+        return;
+    }
+
+    self.throttle_pending = true;
+    if (self.throttle_c.state() == .active) return;
+    self.throttle_h.run(
+        &self.loop,
+        &self.throttle_c,
+        throttleDelayMs(self.last_render_ns.?, now_ns),
+        Thread,
+        self,
+        throttleTimerCallback,
+    );
+}
+
+fn throttleTimerCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        error.Canceled => return .disarm,
+        else => {
+            log.warn("error in throttle timer callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const t: *Thread = self_ orelse {
+        log.warn("throttle callback fired without data set", .{});
+        return .disarm;
+    };
+
+    if (!t.throttle_pending) return .disarm;
+
+    const now_ns = monotonicNs();
+    if (shouldRenderNow(t.flags.focused, t.last_render_ns, now_ns)) {
+        t.throttle_pending = false;
+        _ = renderCallback(t, undefined, undefined, {});
+        return .disarm;
+    }
+
+    t.throttle_h.run(
+        &t.loop,
+        &t.throttle_c,
+        throttleDelayMs(t.last_render_ns.?, now_ns),
+        Thread,
+        t,
+        throttleTimerCallback,
+    );
+    return .disarm;
 }
 
 fn drawNowCallback(
@@ -568,6 +639,8 @@ fn renderCallback(
     // we'll catch up when the .visible mailbox message flips us back on.
     // Kitty graphics animations pause with us and resume on visibility.
     if (!t.flags.visible) return .disarm;
+
+    t.last_render_ns = monotonicNs();
 
     // Update our frame data
     t.renderer.updateFrame(
@@ -855,3 +928,36 @@ const Compression = struct {
         };
     }
 };
+
+test "renderer throttle: focused always renders" {
+    const testing = std.testing;
+    try testing.expect(shouldRenderNow(true, null, 0));
+    try testing.expect(shouldRenderNow(true, 1_000, 1_001));
+}
+
+test "renderer throttle: unfocused first wakeup is immediate" {
+    const testing = std.testing;
+    try testing.expect(shouldRenderNow(false, null, 5));
+}
+
+test "renderer throttle: unfocused is capped at the interval" {
+    const testing = std.testing;
+    const ms = std.time.ns_per_ms;
+    const last: u64 = 10 * std.time.ns_per_s;
+    try testing.expect(!shouldRenderNow(false, last, last));
+    try testing.expect(!shouldRenderNow(false, last, last + 99 * ms));
+    try testing.expect(shouldRenderNow(false, last, last + 100 * ms));
+    try testing.expect(shouldRenderNow(false, last, last + 500 * ms));
+    try testing.expect(!shouldRenderNow(false, last, last - 1));
+}
+
+test "renderer throttle: delay is the remaining interval" {
+    const testing = std.testing;
+    const ms = std.time.ns_per_ms;
+    const last: u64 = 10 * std.time.ns_per_s;
+    try testing.expectEqual(@as(u64, 100), throttleDelayMs(last, last));
+    try testing.expectEqual(@as(u64, 40), throttleDelayMs(last, last + 60 * ms));
+    try testing.expectEqual(@as(u64, 1), throttleDelayMs(last, last + 99 * ms + ms / 2));
+    try testing.expectEqual(@as(u64, 1), throttleDelayMs(last, last + 100 * ms));
+    try testing.expectEqual(@as(u64, 1), throttleDelayMs(last, last + 400 * ms));
+}

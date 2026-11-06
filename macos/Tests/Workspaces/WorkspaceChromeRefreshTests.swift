@@ -50,6 +50,8 @@ private final class ChromeHarness {
     var persistedState = WorkspacePersistedState(selectedWorkspace: "default", workspaces: [])
     var mode = WorkspacePowerMode.performance
     var isPrimary = true
+    var isOccluded = false
+    private(set) var suspendedPersistChecks = 0
     var failWrites = false
     private(set) var writeCount = 0
     private(set) var fileState: WorkspacePersistedState?
@@ -67,14 +69,27 @@ private final class ChromeHarness {
             interval: { [unowned self] in self.mode.chromeThrottleInterval },
             now: { clock.time },
             schedule: { clock.schedule($0, $1) },
+            isSuspended: { [unowned self] in self.isOccluded },
+            performSuspended: { [unowned self] in
+                self.suspendedPersistChecks += 1
+                self.persistIfNeeded()
+            },
             perform: { [unowned self] in self.refresh() }
         )
         self.throttle = throttle
         cancellable = surface.changes.sink { _ in throttle.request() }
     }
 
+    func resume() {
+        throttle?.resume()
+    }
+
     private func refresh() {
         refreshTimes.append(clock.time)
+        persistIfNeeded()
+    }
+
+    private func persistIfNeeded() {
         let state = persistedState
         let shouldPersist = gate.shouldPersist(
             state,
@@ -270,6 +285,93 @@ struct WorkspaceChromeRefreshTests {
         harness.surface.title.send("six")
         harness.clock.advance(to: 11.4)
         #expect(harness.refreshMilliseconds == [0, 200, 10_000, 11_000, 11_200, 11_400])
+    }
+
+    @Test func chromeRefreshesAreSkippedWhileTheWindowIsOccluded() {
+        let harness = ChromeHarness()
+        harness.isOccluded = true
+
+        for step in 1...20 {
+            harness.clock.advance(to: Double(step) * 0.1)
+            harness.surface.title.send("⠋ working \(step)")
+        }
+        harness.clock.advance(to: 5)
+
+        #expect(harness.refreshCount == 0)
+        #expect(harness.suspendedPersistChecks >= 1)
+    }
+
+    @Test func persistenceKeepsRunningWhileTheWindowIsOccluded() {
+        let harness = ChromeHarness()
+        harness.isOccluded = true
+        harness.persistedState = WorkspacePersistedState(selectedWorkspace: "hidden", workspaces: [])
+
+        harness.surface.pwd.send("/tmp/ws-project")
+        harness.clock.advance(to: 2)
+
+        #expect(harness.refreshCount == 0)
+        #expect(harness.persistCount == 1)
+        #expect(harness.fileState == harness.persistedState)
+    }
+
+    @Test func becomingVisibleRunsExactlyOneRefreshAtOnce() {
+        let harness = ChromeHarness()
+        harness.isOccluded = true
+        harness.surface.title.send("one")
+        harness.clock.advance(to: 3)
+        #expect(harness.refreshCount == 0)
+
+        harness.isOccluded = false
+        harness.resume()
+        harness.clock.advance(to: 3)
+        #expect(harness.refreshMilliseconds == [3_000])
+
+        harness.clock.advance(to: 10)
+        #expect(harness.refreshCount == 1)
+    }
+
+    @Test func resumeTwiceInTheSameTickRunsOneRefresh() {
+        let harness = ChromeHarness()
+
+        harness.resume()
+        harness.resume()
+        harness.clock.advance(to: 0)
+
+        #expect(harness.refreshCount == 1)
+
+        harness.resume()
+        harness.resume()
+        harness.clock.advance(to: 1)
+        #expect(harness.refreshCount == 2)
+    }
+
+    @Test func resumeStaysSilentWhileTheWindowIsStillOccluded() {
+        let harness = ChromeHarness()
+        harness.isOccluded = true
+
+        harness.resume()
+        harness.clock.advance(to: 1)
+
+        #expect(harness.refreshCount == 0)
+    }
+
+    @Test func becomingKeyRefreshesInsideASaverWindowWithoutWaiting() {
+        let harness = ChromeHarness()
+        harness.mode = .saver
+
+        harness.surface.title.send("one")
+        harness.clock.advance(to: 0)
+        harness.surface.title.send("two")
+        harness.clock.advance(to: 0.3)
+        #expect(harness.refreshMilliseconds == [0])
+
+        harness.mode = .performance
+        harness.resume()
+        harness.clock.advance(to: 0.3)
+        #expect(harness.refreshMilliseconds == [0, 300])
+
+        harness.clock.advance(to: 5)
+        #expect(harness.refreshCount == 2)
     }
 
     @Test func persistGateRepeatsWhenPersistenceIsToggled() {

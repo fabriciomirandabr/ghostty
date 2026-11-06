@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import IOKit.ps
@@ -6,9 +7,15 @@ enum WorkspacePowerMode: String, Equatable, Sendable {
     case performance
     case saver
 
-    static func resolve(lowPower: Bool, thermal: ProcessInfo.ThermalState, onBattery: Bool) -> WorkspacePowerMode {
+    static func resolve(
+        lowPower: Bool,
+        thermal: ProcessInfo.ThermalState,
+        onBattery: Bool,
+        appActive: Bool = true,
+        windowKey: Bool = true
+    ) -> WorkspacePowerMode {
         let hot = thermal.rawValue >= ProcessInfo.ThermalState.serious.rawValue
-        return lowPower || hot || onBattery ? .saver : .performance
+        return lowPower || hot || onBattery || !appActive || !windowKey ? .saver : .performance
     }
 
     var chromeThrottleInterval: TimeInterval {
@@ -37,9 +44,22 @@ struct WorkspacePowerInputs: Equatable {
     var lowPower: Bool
     var thermal: ProcessInfo.ThermalState
     var onBattery: Bool
+    var appActive = true
+    var windowKey = true
 
     var mode: WorkspacePowerMode {
-        WorkspacePowerMode.resolve(lowPower: lowPower, thermal: thermal, onBattery: onBattery)
+        WorkspacePowerMode.resolve(
+            lowPower: lowPower,
+            thermal: thermal,
+            onBattery: onBattery,
+            appActive: appActive,
+            windowKey: windowKey)
+    }
+
+    func mode(windowKey: Bool) -> WorkspacePowerMode {
+        var copy = self
+        copy.windowKey = windowKey
+        return copy.mode
     }
 }
 
@@ -57,7 +77,8 @@ enum WorkspacePowerSource {
         WorkspacePowerInputs(
             lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
             thermal: ProcessInfo.processInfo.thermalState,
-            onBattery: isOnBattery())
+            onBattery: isOnBattery(),
+            appActive: NSApplication.shared.isActive)
     }
 }
 
@@ -66,6 +87,7 @@ final class WorkspacePowerMonitor: ObservableObject {
     static let shared = WorkspacePowerMonitor(observingSystem: true)
 
     @Published private(set) var mode: WorkspacePowerMode
+    @Published private(set) var inputs: WorkspacePowerInputs
 
     private let readInputs: () -> WorkspacePowerInputs
 
@@ -74,14 +96,20 @@ final class WorkspacePowerMonitor: ObservableObject {
         observingSystem: Bool = false
     ) {
         self.readInputs = readInputs
-        self.mode = readInputs().mode
+        let initial = readInputs()
+        self.inputs = initial
+        self.mode = initial.mode
         if observingSystem {
             observeSystem()
         }
     }
 
     func refresh() {
-        let resolved = readInputs().mode
+        let current = readInputs()
+        if current != inputs {
+            inputs = current
+        }
+        let resolved = current.mode
         guard resolved != mode else { return }
         mode = resolved
         Ghostty.logger.info("workspace power mode: \(resolved.rawValue, privacy: .public)")
@@ -89,7 +117,13 @@ final class WorkspacePowerMonitor: ObservableObject {
 
     private func observeSystem() {
         let center = NotificationCenter.default
-        for name in [Notification.Name.NSProcessInfoPowerStateDidChange, ProcessInfo.thermalStateDidChangeNotification] {
+        let names = [
+            Notification.Name.NSProcessInfoPowerStateDidChange,
+            ProcessInfo.thermalStateDidChangeNotification,
+            NSApplication.didBecomeActiveNotification,
+            NSApplication.didResignActiveNotification
+        ]
+        for name in names {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             }

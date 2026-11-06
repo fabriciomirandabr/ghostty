@@ -61,6 +61,16 @@ struct StatusIndicatorViewTests {
     }
 
     @Test(arguments: [
+        (SurfaceActivityState.idle, WorkspaceTabPill.Indicator?.none),
+        (.running, .some(.ring)),
+        (.needsAttention, .some(.dot)),
+        (.done, .some(.check)),
+    ])
+    func pillIndicatorMapsState(state: SurfaceActivityState, expected: WorkspaceTabPill.Indicator?) {
+        #expect(WorkspaceTabPill.indicator(for: state) == expected)
+    }
+
+    @Test(arguments: [
         SurfaceActivityState.idle, .running, .done, .needsAttention,
     ])
     func singlePaneTabsShowNoDigit(state: SurfaceActivityState) {

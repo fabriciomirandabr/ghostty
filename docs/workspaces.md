@@ -52,7 +52,7 @@ Every window has a workspace called `Default`, first in the list. It cannot be c
 
 ### Tabs
 
-The tab bar shows one pill per tab of the active workspace: a circle state indicator on the left, the name, and an x on hover or when active. A split tab shows the highest state among its panes: the ring while any pane runs, and a small digit inside it with the number of running panes when two or more run (no digit for one running pane, nor for the needs you, done and idle states). The pill reads `name, N running` to VoiceOver when N is two or more. The `+` after the last pill opens a new terminal. The split button right after it splits the focused terminal of the selected tab: a click splits right (`new_split:right`) and an Option-click splits down (`new_split:down`), the same path as `Cmd+D` and `Cmd+Shift+D`. Its tooltip reads `Split Terminal` and `Option-click: Split Down`, each followed by the shortcut from your config when the action has one. With no focused terminal the click does nothing.
+The tab bar shows one pill per tab of the active workspace: a small state indicator on the left, the name, and an x on hover or when active. The indicator is a thin ring while the tab runs, an amber dot when it needs you, a check when it is done, and nothing when it is idle. A split tab shows the highest state among its panes, with a small digit inside the ring with the number of running panes when two or more run (no digit for one running pane, nor for the needs you, done and idle states). The pill reads `name, N running` to VoiceOver when N is two or more. The `+` after the last pill opens a new terminal. The split button right after it splits the focused terminal of the selected tab: a click splits right (`new_split:right`) and an Option-click splits down (`new_split:down`), the same path as `Cmd+D` and `Cmd+Shift+D`. Its tooltip reads `Split Terminal` and `Option-click: Split Down`, each followed by the shortcut from your config when the action has one. With no focused terminal the click does nothing.
 
 ![Tab bar](images/workspaces/tab-bar.png)
 
@@ -109,18 +109,18 @@ Inactive workspaces keep their processes alive and keep updating the badge.
 
 ### Activity badge
 
-The badge at the right of the title bar summarizes the activity of the whole window. It is a circle with a dark fill and white text in dark mode, and the mirror in light mode (light fill, dark text). The fill is the same whether or not anything runs. While terminals run, a thin ring around the badge becomes a 270° arc that turns in eight steps, four times a second; it stays a still full ring when Reduce Motion is on or the window is not key. Nothing else animates.
+The badge at the right of the title bar summarizes the activity of the whole window. It is a circle with a dark fill and white text in dark mode, and the mirror in light mode (light fill, dark text). The fill is the same whether or not anything runs. While terminals run, a thin static ring surrounds the badge. Nothing in the workspaces views animates, apart from the thumbnails refreshing while the overview is open.
 
 Terminal states:
 
-- running: a thin ring around the badge, turning as described above. The badge shows the count of running terminals, and every split pane counts on its own: a tab with two running panes adds 2, and a window with a tab of two running panes plus one running single-pane tab shows 3.
+- running: a thin static ring around the badge. The badge shows the count of running terminals, and every split pane counts on its own: a tab with two running panes adds 2, and a window with a tab of two running panes plus one running single-pane tab shows 3.
 - needs you: the digit and the ring turn amber (`0xF5D90A` in dark mode, `0x8A5A00` in light mode).
 - done: a check, kept for 10 seconds, then idle.
 - idle: a grid icon in the bar and nothing in a tab row.
 
 Aggregation priority: needs you, running, done, idle.
 
-The count appears where the view is about workspaces: the bar badge, the workspace cards, the quick switcher (`N running`) and the workspace menu, always counting running panes. A tab pill shows the state indicator and, only when the tab is running with two or more panes, a small digit with that number (hidden when the tab needs you). A tab tracks its panes as one state: needs you if any pane needs you, otherwise running if any runs, otherwise done if any finished in the last 10 seconds, otherwise idle.
+The count appears where the view is about workspaces: the bar badge, the workspace cards, the quick switcher (`N running`) and the workspace menu, always counting running panes. A tab pill shows its indicator (no indicator when idle) and, only when the tab is running with two or more panes, a small digit with that number (hidden when the tab needs you). A tab tracks its panes as one state: needs you if any pane needs you, otherwise running if any runs, otherwise done if any finished in the last 10 seconds, otherwise idle.
 
 ### Activity popover
 
@@ -144,7 +144,7 @@ When a tab has splits, every pane gets a 24 pt header with the title and an x on
 
 ### Power
 
-The workspaces chrome adapts to the machine automatically, with no setting. It switches to a saver mode when Low Power Mode is on, when the thermal state is serious or critical, or when the Mac runs on battery, and goes back to performance mode as soon as none of them holds. The saver mode only slows the chrome refresh: the title bar, the activity badge, the overlays and the persistence check all run on that refresh, so they update at most once per second instead of five times, and the grid thumbnails are captured and redrawn every 2 seconds instead of every 0.5 s. It changes nothing else: terminals and notifications behave the same. Each mode change is logged once at info level.
+The workspaces chrome adapts to the machine automatically, with no setting. It switches to a saver mode when Low Power Mode is on, when the thermal state is serious or critical, or when the Mac runs on battery, and also while the app is in the background or the window is not the key window (a window that is covered or minimized skips its interface refreshes, keeps saving its state, and refreshes once as soon as it is visible and focused again), and goes back to performance mode as soon as none of them holds. The saver mode only slows the chrome refresh: the title bar, the activity badge, the overlays and the persistence check all run on that refresh, so they update at most once per second instead of five times, and the grid thumbnails are captured and redrawn every 2 seconds instead of every 0.5 s. Notifications and persistence behave the same. Terminal rendering has its own cap, which belongs to the core and not to the saver mode: a pane that is not focused (a split showing `htop`, a window behind another app) is limited to one frame per 100 ms, in every window, with no setting yet. A focused pane is never capped, and the first new output in a background pane still shows at once. Each mode change is logged once at info level.
 
 Thumbnails are stored at the size of the card (at most 480 points wide), so a snapshot takes a small fraction of the memory of a full capture. Captures are skipped while the window is not key or is hidden.
 

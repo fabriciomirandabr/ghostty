@@ -25,6 +25,49 @@ struct WorkspacePowerModeTests {
         #expect(WorkspacePowerMode.resolve(lowPower: false, thermal: serious, onBattery: true) == .saver)
     }
 
+    @Test func backgroundAppOrNonKeyWindowResolvesToSaver() {
+        let nominal = ProcessInfo.ThermalState.nominal
+
+        #expect(WorkspacePowerMode.resolve(
+            lowPower: false, thermal: nominal, onBattery: false, appActive: true, windowKey: true) == .performance)
+        #expect(WorkspacePowerMode.resolve(
+            lowPower: false, thermal: nominal, onBattery: false, appActive: false, windowKey: true) == .saver)
+        #expect(WorkspacePowerMode.resolve(
+            lowPower: false, thermal: nominal, onBattery: false, appActive: true, windowKey: false) == .saver)
+        #expect(WorkspacePowerMode.resolve(
+            lowPower: false, thermal: nominal, onBattery: false, appActive: false, windowKey: false) == .saver)
+        #expect(WorkspacePowerMode.resolve(
+            lowPower: true, thermal: nominal, onBattery: true, appActive: true, windowKey: true) == .saver)
+    }
+
+    @Test func theWindowKeyInputOverridesThePowerInputsOfTheMonitor() {
+        let inputs = WorkspacePowerInputs(lowPower: false, thermal: .nominal, onBattery: false)
+
+        #expect(inputs.mode == .performance)
+        #expect(inputs.mode(windowKey: true) == .performance)
+        #expect(inputs.mode(windowKey: false) == .saver)
+
+        var battery = inputs
+        battery.onBattery = true
+        #expect(battery.mode(windowKey: true) == .saver)
+    }
+
+    @Test func monitorGoesToSaverWhenTheAppResignsActive() {
+        var inputs = WorkspacePowerInputs(lowPower: false, thermal: .nominal, onBattery: false)
+        let monitor = WorkspacePowerMonitor(readInputs: { inputs })
+        var seen: [Bool] = []
+        let cancellable = monitor.$inputs.sink { seen.append($0.appActive) }
+
+        inputs.appActive = false
+        monitor.refresh()
+        inputs.appActive = true
+        monitor.refresh()
+
+        #expect(seen == [true, false, true])
+        #expect(monitor.mode == .performance)
+        cancellable.cancel()
+    }
+
     @Test func saverIntervalsAreSlowerThanPerformanceOnes() {
         #expect(WorkspacePowerMode.performance.chromeThrottleInterval == 0.2)
         #expect(WorkspacePowerMode.saver.chromeThrottleInterval == 1.0)
@@ -69,7 +112,9 @@ struct WorkspacePowerModeTests {
         #expect(inputs.mode == WorkspacePowerMode.resolve(
             lowPower: inputs.lowPower,
             thermal: inputs.thermal,
-            onBattery: inputs.onBattery))
+            onBattery: inputs.onBattery,
+            appActive: inputs.appActive,
+            windowKey: inputs.windowKey))
     }
 }
 

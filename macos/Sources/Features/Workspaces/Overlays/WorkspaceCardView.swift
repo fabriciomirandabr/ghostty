@@ -123,7 +123,6 @@ struct WorkspaceCardView: View {
         .contentShape(RoundedRectangle(cornerRadius: WorkspaceOverlayMetrics.cardRadius, style: .continuous))
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: borderColor)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Open workspace \(workspace.name)")
         .accessibilityAddTraits(.isButton)

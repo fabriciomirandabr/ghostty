@@ -12,20 +12,27 @@ final class WorkspaceChromeRefreshThrottle {
     private let interval: @MainActor () -> TimeInterval
     private let now: () -> TimeInterval
     private let schedule: Schedule
+    private let isSuspended: @MainActor () -> Bool
     private let perform: () -> Void
+    private let performSuspended: () -> Void
     private var lastRefresh: TimeInterval?
     private var isDirty = false
     private var isScheduled = false
+    private var isResumePending = false
 
     init(
         interval: @escaping @MainActor () -> TimeInterval = { WorkspacePowerMonitor.shared.mode.chromeThrottleInterval },
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         schedule: @escaping Schedule = WorkspaceChromeRefreshThrottle.dispatchSchedule,
+        isSuspended: @escaping @MainActor () -> Bool = { false },
+        performSuspended: @escaping () -> Void = {},
         perform: @escaping () -> Void
     ) {
         self.interval = interval
         self.now = now
         self.schedule = schedule
+        self.isSuspended = isSuspended
+        self.performSuspended = performSuspended
         self.perform = perform
     }
 
@@ -49,6 +56,18 @@ final class WorkspaceChromeRefreshThrottle {
         lastRefresh = now()
     }
 
+    func resume() {
+        guard !isResumePending else { return }
+        isResumePending = true
+        schedule(0) { [weak self] in
+            guard let self else { return }
+            self.isResumePending = false
+            guard !self.isSuspended() else { return }
+            self.noteRefreshed()
+            self.perform()
+        }
+    }
+
     private func scheduleNext() {
         isScheduled = true
         let wait = lastRefresh.map { max(0, interval() - (now() - $0)) } ?? 0
@@ -65,7 +84,11 @@ final class WorkspaceChromeRefreshThrottle {
         }
 
         noteRefreshed()
-        perform()
+        if isSuspended() {
+            performSuspended()
+        } else {
+            perform()
+        }
     }
 }
 

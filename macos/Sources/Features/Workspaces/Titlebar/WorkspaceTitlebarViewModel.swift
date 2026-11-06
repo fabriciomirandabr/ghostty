@@ -26,7 +26,6 @@ struct WorkspaceTitlebarSnapshot: Equatable {
     var badge = WorkspaceActivityAggregator.Summary(runningCount: 0, needsAttention: false)
     var fontSize: Int?
     var canSplit = false
-    var isWindowVisible = false
 }
 
 enum SplitTerminalDirection: Equatable {
@@ -52,7 +51,6 @@ extension WorkspaceTitlebarSnapshot {
         homeDirectory: URL,
         fontSize: Int? = nil,
         canSplit: Bool = false,
-        isWindowVisible: Bool = false,
         activity: (ViewType) -> SurfaceActivityState,
         surfaceTitle: (WorkspaceTab<ViewType>) -> String,
         surfacePwd: (WorkspaceTab<ViewType>) -> String? = { _ in nil }
@@ -94,8 +92,7 @@ extension WorkspaceTitlebarSnapshot {
             selectedTabID: store.selectedWorkspace?.selectedTabID,
             badge: WorkspaceActivityAggregator.summary(store.workspaces.flatMap(tabStates)),
             fontSize: fontSize,
-            canSplit: canSplit,
-            isWindowVisible: isWindowVisible
+            canSplit: canSplit
         )
     }
 }
@@ -228,7 +225,6 @@ final class WorkspaceTitlebarViewModel: ObservableObject {
     var tabs: [WorkspaceTitlebarTab] { snapshot.tabs }
     var selectedTabID: UUID? { snapshot.selectedTabID }
     var badge: WorkspaceActivityAggregator.Summary { snapshot.badge }
-    var isWindowVisible: Bool { snapshot.isWindowVisible }
     var currentFontSize: Int? { snapshot.fontSize }
 
     var activeWorkspace: WorkspaceTitlebarWorkspace? {

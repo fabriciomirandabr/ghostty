@@ -19,6 +19,48 @@ struct WorkspaceTabPill: View {
     @State private var visibleWidth: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
 
+    enum Indicator: Equatable {
+        case ring
+        case dot
+        case check
+    }
+
+    static func indicator(for state: SurfaceActivityState) -> Indicator? {
+        switch state {
+        case .idle: nil
+        case .running: .ring
+        case .needsAttention: .dot
+        case .done: .check
+        }
+    }
+
+    @ViewBuilder
+    private func indicatorView(_ kind: Indicator) -> some View {
+        let color = WorkspaceBadgeStyle.make(for: tab.state, colorScheme: colorScheme).foreground
+        switch kind {
+        case .ring:
+            ZStack {
+                BadgeRing(color: color, diameter: Self.badgeSize - 5)
+                if let text = Self.indicatorText(for: tab) {
+                    Text(text)
+                        .font(.system(size: Self.badgeSize * 0.56, weight: .semibold))
+                        .foregroundColor(color)
+                }
+            }
+            .accessibilityHidden(true)
+        case .dot:
+            Circle()
+                .fill(color)
+                .frame(width: Self.badgeSize * 0.5, height: Self.badgeSize * 0.5)
+                .accessibilityHidden(true)
+        case .check:
+            CheckGlyph()
+                .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .frame(width: Self.badgeSize * 0.6, height: Self.badgeSize * 0.6)
+                .accessibilityHidden(true)
+        }
+    }
+
     static func indicatorText(for tab: WorkspaceTitlebarTab) -> String? {
         StatusIndicatorView.badgeText(for: tab.state, context: .tab, runningCount: tab.runningCount)
     }
@@ -33,13 +75,14 @@ struct WorkspaceTabPill: View {
 
     var body: some View {
         let palette = WorkspaceTitlebarPalette(colorScheme: colorScheme)
+        let kind = Self.indicator(for: tab.state)
 
         HStack(spacing: 0) {
-            StatusIndicatorView(
-                state: tab.state,
-                diameter: Self.badgeSize,
-                badgeText: Self.indicatorText(for: tab)
-            )
+            ZStack {
+                if let kind {
+                    indicatorView(kind)
+                }
+            }
             .frame(width: Self.indicatorSize, height: Self.indicatorSize)
 
             HStack(spacing: 0) {
