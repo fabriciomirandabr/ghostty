@@ -100,7 +100,7 @@ private struct ActivityPopoverRow: View {
                 StatusIndicatorView(
                     state: row.state,
                     diameter: ActivityPopoverView.badgeSize,
-                    badgeText: StatusIndicatorView.badgeText(for: row.state, runningCount: 1)
+                    badgeText: StatusIndicatorView.badgeText(for: row.state, context: .tab, runningCount: 1)
                 )
 
                 VStack(alignment: .leading, spacing: 0) {

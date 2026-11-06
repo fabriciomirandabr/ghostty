@@ -88,7 +88,7 @@ struct CloseWorkspaceConfirmationView: View {
                             StatusIndicatorView(
                                 state: row.state,
                                 diameter: 16,
-                                badgeText: StatusIndicatorView.badgeText(for: row.state, runningCount: 1)
+                                badgeText: StatusIndicatorView.badgeText(for: row.state, context: .tab, runningCount: 1)
                             )
                             Text("\(row.title) · \(row.suffix)")
                                 .font(.system(size: 12.5))

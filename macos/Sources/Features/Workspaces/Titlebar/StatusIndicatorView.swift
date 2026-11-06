@@ -2,6 +2,7 @@ import SwiftUI
 
 enum WorkspaceStatusColors {
     static let needsAttentionHex: UInt32 = 0xF5D90A
+    static let needsAttentionLightHex: UInt32 = 0x8A5A00
     static let badgeDotHex: UInt32 = 0xFF7A1A
     static let badgeDarkHex: UInt32 = 0x3A3A3A
     static let badgeLightHex: UInt32 = 0xFFFFFF
@@ -23,22 +24,48 @@ struct WorkspaceBadgeStyle: Equatable {
     let foregroundHex: UInt32
 
     static func make(for state: SurfaceActivityState, colorScheme: ColorScheme = .dark) -> WorkspaceBadgeStyle {
+        let isDark = colorScheme == .dark
+        let fillHex = isDark ? WorkspaceStatusColors.badgeDarkHex : WorkspaceStatusColors.badgeLightHex
+        let textHex = isDark ? WorkspaceStatusColors.badgeLightHex : WorkspaceStatusColors.badgeInkHex
         switch state {
-        case .idle:
-            WorkspaceBadgeStyle(fillHex: WorkspaceStatusColors.badgeDarkHex, foregroundHex: WorkspaceStatusColors.badgeLightHex)
-        case .running, .done:
-            if colorScheme == .dark {
-                WorkspaceBadgeStyle(fillHex: WorkspaceStatusColors.badgeLightHex, foregroundHex: WorkspaceStatusColors.badgeInkHex)
-            } else {
-                WorkspaceBadgeStyle(fillHex: WorkspaceStatusColors.badgeDarkHex, foregroundHex: WorkspaceStatusColors.badgeLightHex)
-            }
+        case .idle, .running, .done:
+            return WorkspaceBadgeStyle(fillHex: fillHex, foregroundHex: textHex)
         case .needsAttention:
-            WorkspaceBadgeStyle(fillHex: WorkspaceStatusColors.needsAttentionHex, foregroundHex: WorkspaceStatusColors.badgeInkHex)
+            return WorkspaceBadgeStyle(
+                fillHex: fillHex,
+                foregroundHex: isDark ? WorkspaceStatusColors.needsAttentionHex : WorkspaceStatusColors.needsAttentionLightHex
+            )
         }
     }
 
     var fill: Color { WorkspaceStatusColors.color(hex: fillHex) }
     var foreground: Color { WorkspaceStatusColors.color(hex: foregroundHex) }
+}
+
+enum WorkspaceBadgeContext {
+    case workspace
+    case tab
+}
+
+extension WorkspaceBadgeStyle {
+    static let ringLineWidth: CGFloat = 1.5
+    static let ringOpacity: Double = 0.6
+
+    static func showsRing(for state: SurfaceActivityState) -> Bool {
+        state == .running || state == .needsAttention
+    }
+}
+
+struct BadgeRing: View {
+    let color: Color
+    let diameter: CGFloat
+
+    var body: some View {
+        Circle()
+            .stroke(color.opacity(WorkspaceBadgeStyle.ringOpacity), lineWidth: WorkspaceBadgeStyle.ringLineWidth)
+            .frame(width: diameter + 5, height: diameter + 5)
+            .allowsHitTesting(false)
+    }
 }
 
 struct StatusIndicatorView: View {
@@ -57,8 +84,15 @@ struct StatusIndicatorView: View {
         }
     }
 
-    static func badgeText(for state: SurfaceActivityState, runningCount: Int) -> String? {
-        state == .running && runningCount > 0 ? "\(runningCount)" : nil
+    static func badgeText(
+        for state: SurfaceActivityState,
+        context: WorkspaceBadgeContext,
+        runningCount: Int
+    ) -> String? {
+        switch context {
+        case .tab: nil
+        case .workspace: (state == .running || state == .needsAttention) && runningCount > 0 ? "\(runningCount)" : nil
+        }
     }
 
     var body: some View {
@@ -69,6 +103,10 @@ struct StatusIndicatorView: View {
                 CheckGlyph()
                     .stroke(badge.foreground, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                     .frame(width: diameter * 0.6, height: diameter * 0.6)
+            } else if state == .needsAttention && badgeText == nil {
+                Circle()
+                    .fill(badge.foreground)
+                    .frame(width: diameter * 0.36, height: diameter * 0.36)
             } else if let badgeText {
                 Text(badgeText)
                     .font(.system(size: diameter * 0.56, weight: .semibold))
@@ -76,6 +114,11 @@ struct StatusIndicatorView: View {
             }
         }
         .frame(width: diameter, height: diameter)
+        .overlay {
+            if WorkspaceBadgeStyle.showsRing(for: state) {
+                BadgeRing(color: badge.foreground, diameter: diameter)
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel(for: state))
     }

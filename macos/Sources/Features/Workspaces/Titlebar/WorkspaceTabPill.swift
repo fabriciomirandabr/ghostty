@@ -34,7 +34,7 @@ struct WorkspaceTabPill: View {
             StatusIndicatorView(
                 state: tab.state,
                 diameter: Self.badgeSize,
-                badgeText: StatusIndicatorView.badgeText(for: tab.state, runningCount: 1)
+                badgeText: StatusIndicatorView.badgeText(for: tab.state, context: .tab, runningCount: 1)
             )
             .frame(width: Self.indicatorSize, height: Self.indicatorSize)
 

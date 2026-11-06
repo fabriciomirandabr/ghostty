@@ -11,7 +11,7 @@ struct WorkspaceStateBadge: View {
                     StatusIndicatorView(
                         state: .running,
                         diameter: 18,
-                        badgeText: StatusIndicatorView.badgeText(for: .running, runningCount: runningCount)
+                        badgeText: StatusIndicatorView.badgeText(for: .running, context: .workspace, runningCount: runningCount)
                     )
                 }
                 Text(label)

@@ -26,6 +26,11 @@ struct ActivityBadgeView: View {
         runningCount > maxDisplayedCount ? "\(maxDisplayedCount)+" : "\(runningCount)"
     }
 
+    static func ringState(runningCount: Int, needsAttention: Bool) -> SurfaceActivityState {
+        if needsAttention { return .needsAttention }
+        return showsGrid(runningCount: runningCount) ? .idle : .running
+    }
+
     static func badgeStyle(runningCount: Int, colorScheme: ColorScheme = .dark) -> WorkspaceBadgeStyle {
         WorkspaceBadgeStyle.make(for: showsGrid(runningCount: runningCount) ? .idle : .running, colorScheme: colorScheme)
     }
@@ -33,14 +38,24 @@ struct ActivityBadgeView: View {
     var body: some View {
         let palette = WorkspaceTitlebarPalette(colorScheme: colorScheme)
         let style = Self.badgeStyle(runningCount: runningCount, colorScheme: colorScheme)
-        let highlighted = (isHovering || isOpen) && Self.showsGrid(runningCount: runningCount)
+        let highlighted = isHovering || isOpen
+        let hoverFill = colorScheme == .dark ? palette.badgeHoverBackground : palette.hoverButton
 
         Button(action: onTap) {
             badgeContent(style: style)
                 .frame(width: Self.size, height: Self.size)
                 .background(
-                    Circle().fill(highlighted ? palette.badgeHoverBackground : style.fill)
+                    Circle().fill(highlighted ? hoverFill : style.fill)
                 )
+                .overlay {
+                    let ringState = Self.ringState(runningCount: runningCount, needsAttention: needsAttention)
+                    if WorkspaceBadgeStyle.showsRing(for: ringState) {
+                        BadgeRing(
+                            color: WorkspaceBadgeStyle.make(for: ringState, colorScheme: colorScheme).foreground,
+                            diameter: Self.size
+                        )
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if needsAttention {
                         Circle()

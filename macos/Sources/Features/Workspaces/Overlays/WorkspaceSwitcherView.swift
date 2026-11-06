@@ -183,7 +183,11 @@ private struct WorkspaceSwitcherRow: View {
                         StatusIndicatorView(
                             state: entry.state,
                             diameter: 16,
-                            badgeText: StatusIndicatorView.badgeText(for: entry.state, runningCount: entry.runningCount)
+                            badgeText: StatusIndicatorView.badgeText(
+                                for: entry.state,
+                                context: .workspace,
+                                runningCount: entry.runningCount
+                            )
                         )
                     } else {
                         Color.clear

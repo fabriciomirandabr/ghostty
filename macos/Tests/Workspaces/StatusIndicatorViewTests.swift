@@ -5,6 +5,7 @@ import Testing
 struct StatusIndicatorViewTests {
     @Test func colors() {
         #expect(WorkspaceStatusColors.needsAttentionHex == 0xF5D90A)
+        #expect(WorkspaceStatusColors.needsAttentionLightHex == 0x8A5A00)
         #expect(WorkspaceStatusColors.badgeDotHex == 0xFF7A1A)
         #expect(WorkspaceStatusColors.badgeDarkHex == 0x3A3A3A)
         #expect(WorkspaceStatusColors.badgeLightHex == 0xFFFFFF)
@@ -30,12 +31,21 @@ struct StatusIndicatorViewTests {
         #expect(StatusIndicatorView.accessibilityLabel(for: state) == expected)
     }
 
-    @Test func badgeTextShowsCountOnlyWhileRunning() {
-        #expect(StatusIndicatorView.badgeText(for: .running, runningCount: 3) == "3")
-        #expect(StatusIndicatorView.badgeText(for: .running, runningCount: 1) == "1")
-        #expect(StatusIndicatorView.badgeText(for: .running, runningCount: 0) == nil)
-        #expect(StatusIndicatorView.badgeText(for: .idle, runningCount: 2) == nil)
-        #expect(StatusIndicatorView.badgeText(for: .needsAttention, runningCount: 2) == nil)
-        #expect(StatusIndicatorView.badgeText(for: .done, runningCount: 2) == nil)
+    @Test func workspaceContextKeepsTheRunningCount() {
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .workspace, runningCount: 3) == "3")
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .workspace, runningCount: 1) == "1")
+        #expect(StatusIndicatorView.badgeText(for: .running, context: .workspace, runningCount: 0) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .needsAttention, context: .workspace, runningCount: 2) == "2")
+        #expect(StatusIndicatorView.badgeText(for: .needsAttention, context: .workspace, runningCount: 0) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .idle, context: .workspace, runningCount: 2) == nil)
+        #expect(StatusIndicatorView.badgeText(for: .done, context: .workspace, runningCount: 2) == nil)
+    }
+
+    @Test(arguments: [
+        SurfaceActivityState.idle, .running, .done, .needsAttention,
+    ])
+    func tabContextsShowNoDigit(state: SurfaceActivityState) {
+        #expect(StatusIndicatorView.badgeText(for: state, context: .tab, runningCount: 1) == nil)
+        #expect(StatusIndicatorView.badgeText(for: state, context: .tab, runningCount: 5) == nil)
     }
 }

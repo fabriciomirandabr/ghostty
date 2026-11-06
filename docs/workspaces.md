@@ -88,7 +88,7 @@ Inactive workspaces keep their processes alive and keep updating the badge.
 
 ### Activity badge
 
-The badge at the right of the title bar counts the running terminals across the window. The badge is a circle: dark with a light digit or grid icon when nothing runs; while the count is above zero it is white with a dark digit in dark mode and dark with a light digit in light mode, with no animation. An orange dot appears when a terminal needs you.
+The badge at the right of the title bar counts the running terminals across the window. The badge is a circle with a dark fill and a white digit or grid icon in dark mode, and a light fill with a dark digit in light mode. The fill is the same whether or not anything runs. While the count is above zero a thin static ring surrounds the badge at 60% opacity: white in dark mode and dark ink in light mode, or yellow in dark mode and dark amber in light mode when a terminal needs you. Nothing animates. An orange dot appears when a terminal needs you.
 
 Terminal states:
 
@@ -101,7 +101,7 @@ Aggregation priority: needs you, running, done, idle.
 
 ### Activity popover
 
-Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (white with a dark digit when running, yellow when it needs you, white with a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
+Hover the badge for 250 ms, or press `Cmd+J`, to open the popover. It lists the terminals that are not idle, sorted by priority. Each row has a round indicator in the same style as the badge (no digit, since a row is one terminal: a static ring when running, a yellow dot and a yellow ring when it needs you, a check when done), the tab name and `workspace · last command`. A click goes to that tab. An empty list shows `No terminals in progress.` The footer `Show workspaces` opens the grid.
 
 ![Activity popover](images/workspaces/activity-popover.png)
 

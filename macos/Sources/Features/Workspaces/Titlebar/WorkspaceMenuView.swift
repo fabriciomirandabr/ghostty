@@ -102,7 +102,7 @@ private struct WorkspaceMenuWorkspaceRow: View {
             StatusIndicatorView(
                 state: item.state,
                 diameter: 14,
-                badgeText: StatusIndicatorView.badgeText(for: item.state, runningCount: item.runningCount)
+                badgeText: StatusIndicatorView.badgeText(for: item.state, context: .workspace, runningCount: item.runningCount)
             )
 
             Text(item.title)
