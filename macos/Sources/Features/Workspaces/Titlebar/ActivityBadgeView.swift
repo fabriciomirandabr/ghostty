@@ -7,6 +7,7 @@ struct ActivityBadgeView: View {
     let runningCount: Int
     let needsAttention: Bool
     let isOpen: Bool
+    let isWindowVisible: Bool
     var onTap: () -> Void = {}
     var onHoverChanged: (Bool) -> Void = { _ in }
 
@@ -24,6 +25,27 @@ struct ActivityBadgeView: View {
 
     static func displayText(runningCount: Int) -> String {
         runningCount > maxDisplayedCount ? "\(maxDisplayedCount)+" : "\(runningCount)"
+    }
+
+    static let ringStepsPerTurn = 8
+    static let ringUpdatesPerSecond = 4.0
+
+    static func ringStep(at date: Date) -> Int {
+        let tick = Int((date.timeIntervalSinceReferenceDate * ringUpdatesPerSecond).rounded(.down))
+        return ((tick % ringStepsPerTurn) + ringStepsPerTurn) % ringStepsPerTurn
+    }
+
+    static func ringAngle(at date: Date) -> Double {
+        Double(ringStep(at: date)) * 360 / Double(ringStepsPerTurn)
+    }
+
+    static func shouldSpinRing(reduceMotion: Bool, isKeyWindow: Bool, isWindowVisible: Bool) -> Bool {
+        !reduceMotion && isKeyWindow && isWindowVisible
+    }
+
+    static func ringScheduleStart(now: Date) -> Date {
+        let tick = (now.timeIntervalSinceReferenceDate * ringUpdatesPerSecond).rounded(.down)
+        return Date(timeIntervalSinceReferenceDate: tick / ringUpdatesPerSecond)
     }
 
     static func ringState(runningCount: Int, needsAttention: Bool) -> SurfaceActivityState {
@@ -50,10 +72,12 @@ struct ActivityBadgeView: View {
                 .overlay {
                     let ringState = Self.ringState(runningCount: runningCount, needsAttention: needsAttention)
                     if WorkspaceBadgeStyle.showsRing(for: ringState) {
-                        BadgeRing(
-                            color: WorkspaceBadgeStyle.make(for: ringState, colorScheme: colorScheme).foreground,
-                            diameter: Self.size
-                        )
+                        let ringColor = WorkspaceBadgeStyle.make(for: ringState, colorScheme: colorScheme).foreground
+                        if ringState == .running {
+                            SpinningBadgeRing(color: ringColor, diameter: Self.size, isWindowVisible: isWindowVisible)
+                        } else {
+                            BadgeRing(color: ringColor, diameter: Self.size)
+                        }
                     }
                 }
                 .overlay(alignment: .topTrailing) {
@@ -87,6 +111,42 @@ struct ActivityBadgeView: View {
             Text(Self.displayText(runningCount: runningCount))
                 .workspaceTitlebarFont(size: 12, weight: .semibold)
                 .foregroundColor(style.foreground)
+        }
+    }
+}
+
+private struct SpinningBadgeRing: View {
+    let color: Color
+    let diameter: CGFloat
+    let isWindowVisible: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    var body: some View {
+        let spins = ActivityBadgeView.shouldSpinRing(
+            reduceMotion: reduceMotion,
+            isKeyWindow: controlActiveState == .key,
+            isWindowVisible: isWindowVisible
+        )
+        if spins {
+            TimelineView(.periodic(
+                from: ActivityBadgeView.ringScheduleStart(now: Date()),
+                by: 1 / ActivityBadgeView.ringUpdatesPerSecond
+            )) { context in
+                Circle()
+                    .trim(from: 0, to: 0.75)
+                    .stroke(
+                        color.opacity(WorkspaceBadgeStyle.ringOpacity),
+                        style: StrokeStyle(lineWidth: WorkspaceBadgeStyle.ringLineWidth, lineCap: .butt)
+                    )
+                    .rotationEffect(.degrees(ActivityBadgeView.ringAngle(at: context.date)))
+                    .frame(width: diameter + 5, height: diameter + 5)
+                    .transaction { $0.animation = nil }
+                    .allowsHitTesting(false)
+            }
+        } else {
+            BadgeRing(color: color, diameter: diameter)
         }
     }
 }
